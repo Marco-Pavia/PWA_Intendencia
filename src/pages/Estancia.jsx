@@ -6,10 +6,7 @@ const MAX_NOTES_LENGTH = 500
 
 export default function Estancia({ currentTerminal = 'Terminal Pipila', entryTimeStr = '09:15 AM', onSalidaTerminal }) {
   const [notes, setNotes] = useState('')
-  const [evidences, setEvidences] = useState([
-    { id: 'ev-1', type: 'CHECK_IN', label: 'Entrada', photo_url: 'https://images.unsplash.com/photo-1581578731548-c64695cc6952?w=400&auto=format&fit=crop&q=80' },
-    { id: 'ev-2', type: 'LIMPIEZA', label: 'Limpieza Sanitarios', photo_url: 'https://images.unsplash.com/photo-1584622650111-993a426fbf0a?w=400&auto=format&fit=crop&q=80' }
-  ])
+  const [evidences, setEvidences] = useState([])
   const [uploading, setUploading] = useState(false)
   const [saveSuccessMsg, setSaveSuccessMsg] = useState('')
 
@@ -102,7 +99,7 @@ export default function Estancia({ currentTerminal = 'Terminal Pipila', entryTim
   const handleSaveProgress = () => {
     localStorage.setItem(`estancia_evidences_${currentTerminal}`, JSON.stringify(evidences))
     localStorage.setItem(`estancia_notes_${currentTerminal}`, notes.substring(0, MAX_NOTES_LENGTH))
-    
+
     setSaveSuccessMsg('¡Avance guardado con éxito! Tus fotos y notas están conservadas permanentemente.')
     setTimeout(() => {
       setSaveSuccessMsg('')
@@ -148,7 +145,7 @@ export default function Estancia({ currentTerminal = 'Terminal Pipila', entryTim
       {/* Photo Evidences Section */}
       <div className="form-section-card">
         <label className="section-label">EVIDENCIAS FOTOGRÁFICAS DE ACTIVIDAD</label>
-        
+
         <div className="evidences-grid">
           {evidences.map((ev) => (
             <div key={ev.id} className="evidence-card-item">
