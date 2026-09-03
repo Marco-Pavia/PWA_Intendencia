@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabaseClient'
 
 const MESES = [
@@ -26,20 +26,69 @@ const TERMINALES_CATALOGO = [
   'Terminal Actopan'
 ]
 
+const DAY_LABELS = ['LUN', 'MAR', 'MIÉ', 'JUE', 'VIE', 'SÁB', 'DOM']
+
 export default function CalendarizarActividades() {
-  const [selectedMonth, setSelectedMonth] = useState('Agosto')
-  const [selectedWeek, setSelectedWeek] = useState(SEMANAS[1])
-  const [selectedDay, setSelectedDay] = useState(12)
+  const currentDate = useMemo(() => new Date(), [])
+  const currentYear = currentDate.getFullYear()
+  
+  // Reconocimiento Automático del Mes Actual al Cargar
+  const [selectedMonth, setSelectedMonth] = useState(() => MESES[currentDate.getMonth()])
+  const [selectedWeekIdx, setSelectedWeekIdx] = useState(() => {
+    const day = currentDate.getDate()
+    if (day <= 7) return 0
+    if (day <= 14) return 1
+    if (day <= 21) return 2
+    if (day <= 28) return 3
+    return 4
+  })
+
+  // Calcular la semana de días reales (Lunes a Domingo) en base al calendario real del año
+  const weekDays = useMemo(() => {
+    const monthIdx = MESES.indexOf(selectedMonth)
+    const startDayNum = selectedWeekIdx * 7 + 1
+    const daysInMonth = new Date(currentYear, monthIdx + 1, 0).getDate()
+    const targetDay = Math.min(startDayNum, daysInMonth)
+
+    const baseDate = new Date(currentYear, monthIdx, targetDay)
+    const dayOfWeek = baseDate.getDay() // 0: Dom, 1: Lun, ..., 6: Sáb
+    const distanceToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek
+
+    const monday = new Date(baseDate)
+    monday.setDate(baseDate.getDate() + distanceToMonday)
+
+    const days = []
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(monday)
+      d.setDate(monday.getDate() + i)
+      days.push({
+        lbl: DAY_LABELS[i],
+        num: d.getDate(),
+        monthName: MESES[d.getMonth()],
+        fullDateStr: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`,
+        dateObj: d
+      })
+    }
+    return days
+  }, [selectedMonth, selectedWeekIdx, currentYear])
+
+  const [selectedDayObj, setSelectedDayObj] = useState(weekDays[0])
   const [terminal, setTerminal] = useState(TERMINALES_CATALOGO[0])
   const [departamento, setDepartamento] = useState('Recaudación')
   const [actividad, setActividad] = useState('Limpieza Profunda')
   
   const [tasks, setTasks] = useState([
-    { id: 't-1', title: 'Limpieza Profunda', subtitle: 'Dpto. Recaudación, Terminal Pípila', month: 'Agosto', week: 'Semana 2 (Días 08 - 14)' },
-    { id: 't-2', title: 'Inspección de Seguridad', subtitle: 'Despacho, Terminal Vicente Guerrero', month: 'Agosto', week: 'Semana 2 (Días 08 - 14)' },
-    { id: 't-3', title: 'Limpieza Ordinaria', subtitle: 'Taquilla Ordinario, Terminal 3 d Mayo', month: 'Agosto', week: 'Semana 2 (Días 08 - 14)' }
+    { id: 't-1', title: 'Limpieza Profunda', subtitle: 'Dpto. Recaudación, Terminal Pípila', month: selectedMonth, dateStr: weekDays[0]?.fullDateStr },
+    { id: 't-2', title: 'Inspección de Seguridad', subtitle: 'Despacho, Terminal Vicente Guerrero', month: selectedMonth, dateStr: weekDays[1]?.fullDateStr }
   ])
   const [savedMsg, setSavedMsg] = useState('')
+
+  // Actualizar día seleccionado por defecto al cambiar la semana
+  useEffect(() => {
+    if (weekDays && weekDays.length > 0) {
+      setSelectedDayObj(weekDays[0])
+    }
+  }, [weekDays])
 
   const handleAddTask = () => {
     const newTask = {
@@ -47,7 +96,7 @@ export default function CalendarizarActividades() {
       title: actividad,
       subtitle: `Dpto. ${departamento}, ${terminal}`,
       month: selectedMonth,
-      week: selectedWeek
+      dateStr: selectedDayObj ? selectedDayObj.fullDateStr : `${currentYear}-09-01`
     }
     setTasks([...tasks, newTask])
   }
@@ -61,18 +110,18 @@ export default function CalendarizarActividades() {
     try {
       // Guardar planeación en Supabase DB
       const records = tasks.map(t => ({
-        scheduled_date: `2026-08-${selectedDay}`,
+        scheduled_date: t.dateStr || `${currentYear}-09-01`,
         activity_type: t.title,
-        description: `${t.subtitle} (${t.month} - ${t.week})`,
+        description: t.subtitle,
         status: 'PROGRAMADO'
       }))
 
       await supabase.from('actividades_programadas').insert(records)
       localStorage.setItem('intendencia_scheduled_tasks', JSON.stringify(tasks))
-      setSavedMsg(`¡Planeación de ${selectedMonth} (${selectedWeek}) guardada exitosamente!`)
+      setSavedMsg(`¡Planeación de ${selectedMonth} (${SEMANAS[selectedWeekIdx]}) guardada exitosamente en la base de datos!`)
     } catch (err) {
       console.warn('Guardando localmente planeación:', err)
-      setSavedMsg(`¡Planeación de ${selectedMonth} (${selectedWeek}) guardada en el sistema!`)
+      setSavedMsg(`¡Planeación de ${selectedMonth} (${SEMANAS[selectedWeekIdx]}) guardada en el sistema!`)
     }
   }
 
@@ -84,7 +133,7 @@ export default function CalendarizarActividades() {
 
       <div className="form-section-card">
         <h2>Calendarizar Actividades</h2>
-        <p className="subtitle">Planifique las actividades de mantenimiento seleccionando mes y semana.</p>
+        <p className="subtitle">Selección automática del mes actual ({selectedMonth} {currentYear}) y pasarela de Lunes a Domingo del calendario real.</p>
 
         {/* Month & Week Selectors */}
         <div className="filters-row margin-v">
@@ -109,11 +158,11 @@ export default function CalendarizarActividades() {
             <div className="custom-select-wrapper">
               <select
                 className="terminal-select"
-                value={selectedWeek}
-                onChange={(e) => setSelectedWeek(e.target.value)}
+                value={selectedWeekIdx}
+                onChange={(e) => setSelectedWeekIdx(Number(e.target.value))}
               >
-                {SEMANAS.map(s => (
-                  <option key={s} value={s}>{s}</option>
+                {SEMANAS.map((s, idx) => (
+                  <option key={idx} value={idx}>{s}</option>
                 ))}
               </select>
               <div className="select-arrow">▼</div>
@@ -121,20 +170,23 @@ export default function CalendarizarActividades() {
           </div>
         </div>
 
-        {/* Weekly Day Pills */}
+        {/* Pasarela Dinámica de Días Reales (LUNES a DOMINGO) */}
         <div className="weekly-days-row margin-v">
-          {[12, 13, 14, 15, 16].map((num) => (
-            <div
-              key={num}
-              className={`weekly-day-pill ${selectedDay === num ? 'active' : ''}`}
-              onClick={() => setSelectedDay(num)}
-            >
-              <span className="lbl">
-                {num === 12 ? 'LUN' : num === 13 ? 'MAR' : num === 14 ? 'MIÉ' : num === 15 ? 'JUE' : 'VIE'}
-              </span>
-              <span className="num">{num}</span>
-            </div>
-          ))}
+          {weekDays.map((d) => {
+            const isToday = d.num === currentDate.getDate() && d.monthName === MESES[currentDate.getMonth()]
+            const isSelected = selectedDayObj?.fullDateStr === d.fullDateStr
+            return (
+              <div
+                key={d.fullDateStr}
+                className={`weekly-day-pill ${isSelected ? 'active' : ''}`}
+                onClick={() => setSelectedDayObj(d)}
+              >
+                <span className="lbl">{d.lbl}</span>
+                <span className="num">{d.num}</span>
+                {isToday && <span style={{ fontSize: '0.55rem', background: '#10b981', color: 'white', padding: '1px 3px', borderRadius: '3px', marginTop: '2px' }}>HOY</span>}
+              </div>
+            )
+          })}
         </div>
 
         {/* Form Controls */}
@@ -178,14 +230,14 @@ export default function CalendarizarActividades() {
         </div>
 
         <button type="button" className="btn-add-activity" onClick={handleAddTask}>
-          ➕ Agregar Actividad a {selectedMonth} ({selectedWeek})
+          ➕ Agregar Actividad para el {selectedDayObj ? `${selectedDayObj.lbl} ${selectedDayObj.num} de ${selectedDayObj.monthName}` : selectedMonth}
         </button>
       </div>
 
       {/* Task List Header */}
       <div className="form-section-card">
         <div className="task-list-title-row">
-          <h3>Actividades para {selectedMonth} - {selectedWeek}</h3>
+          <h3>Actividades para {selectedMonth} ({SEMANAS[selectedWeekIdx]})</h3>
           <span className="task-count-badge">{tasks.length} Tareas</span>
         </div>
 
@@ -197,7 +249,7 @@ export default function CalendarizarActividades() {
               <div className="task-info">
                 <h4>{t.title}</h4>
                 <p>{t.subtitle}</p>
-                <small style={{ color: '#64748b', fontWeight: 600 }}>{t.month} • {t.week}</small>
+                <small style={{ color: '#64748b', fontWeight: 600 }}>Fecha: {t.dateStr}</small>
               </div>
               <button
                 type="button"
@@ -212,7 +264,7 @@ export default function CalendarizarActividades() {
         </div>
 
         <button type="button" className="btn-save-planning" onClick={handleSavePlanning}>
-          💾 Guardar Planeación de {selectedMonth} ({selectedWeek})
+          💾 Guardar Planeación de {selectedMonth} ({SEMANAS[selectedWeekIdx]})
         </button>
       </div>
     </div>
