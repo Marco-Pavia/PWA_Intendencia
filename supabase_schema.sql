@@ -54,10 +54,24 @@ INSERT INTO public.departamentos (name, code) VALUES
   ('Áreas Generales', 'DEP-GENERAL')
 ON CONFLICT (name) DO NOTHING;
 
--- 4. Tabla de Jornadas Laborales (Turnos Diarios)
+-- 4. Tabla de Check-Ins / Entradas de Turno (Pantalla 1)
+CREATE TABLE IF NOT EXISTS public.check_ins (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  user_id UUID,
+  user_name TEXT,
+  role TEXT DEFAULT 'supervisora',
+  terminal_name TEXT NOT NULL,
+  check_in_time TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+  latitude NUMERIC(10, 7),
+  longitude NUMERIC(10, 7),
+  photo_url TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- 5. Tabla de Jornadas Laborales (Turnos Diarios)
 CREATE TABLE IF NOT EXISTS public.jornadas (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  supervisor_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
+  supervisor_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
   date DATE NOT NULL DEFAULT CURRENT_DATE,
   start_time TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
   end_time TIMESTAMP WITH TIME ZONE,
@@ -67,11 +81,11 @@ CREATE TABLE IF NOT EXISTS public.jornadas (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
--- 5. Tabla de Estancias en Terminales
+-- 6. Tabla de Estancias en Terminales (Pantallas 2 y 3)
 CREATE TABLE IF NOT EXISTS public.estancias (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  jornada_id UUID REFERENCES public.jornadas(id) ON DELETE CASCADE NOT NULL,
-  terminal_id UUID REFERENCES public.terminales(id) ON DELETE RESTRICT NOT NULL,
+  jornada_id UUID REFERENCES public.jornadas(id) ON DELETE CASCADE,
+  terminal_id UUID REFERENCES public.terminales(id) ON DELETE RESTRICT,
   terminal_name TEXT NOT NULL,
   entry_time TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
   exit_time TIMESTAMP WITH TIME ZONE,
@@ -84,23 +98,23 @@ CREATE TABLE IF NOT EXISTS public.estancias (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
--- 6. Tabla de Evidencias Fotográficas WebP
+-- 7. Tabla de Evidencias Fotográficas WebP
 CREATE TABLE IF NOT EXISTS public.evidencias_fotograficas (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  estancia_id UUID REFERENCES public.estancias(id) ON DELETE CASCADE NOT NULL,
-  jornada_id UUID REFERENCES public.jornadas(id) ON DELETE CASCADE NOT NULL,
+  estancia_id UUID REFERENCES public.estancias(id) ON DELETE CASCADE,
+  jornada_id UUID REFERENCES public.jornadas(id) ON DELETE CASCADE,
   photo_url TEXT NOT NULL,
   category TEXT NOT NULL DEFAULT 'SUPERVISION' CHECK (category IN ('CHECK_IN', 'CHECK_OUT', 'LIMPIEZA', 'MANTENIMIENTO', 'SUPERVISION', 'OTRO')),
   label TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
--- 7. Tabla de Actividades Programadas / Calendarización (Pantallas 8 y 9)
+-- 8. Tabla de Actividades Programadas / Calendarización (Pantallas 8 y 9)
 CREATE TABLE IF NOT EXISTS public.actividades_programadas (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
-  supervisor_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE NOT NULL,
-  terminal_id UUID REFERENCES public.terminales(id) ON DELETE RESTRICT NOT NULL,
-  departamento_id UUID REFERENCES public.departamentos(id) ON DELETE RESTRICT NOT NULL,
+  supervisor_id UUID REFERENCES public.profiles(id) ON DELETE CASCADE,
+  terminal_id UUID REFERENCES public.terminales(id) ON DELETE RESTRICT,
+  departamento_id UUID REFERENCES public.departamentos(id) ON DELETE RESTRICT,
   scheduled_date DATE NOT NULL,
   activity_type TEXT NOT NULL,
   description TEXT,
@@ -115,29 +129,31 @@ CREATE TABLE IF NOT EXISTS public.actividades_programadas (
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.terminales ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.departamentos ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.check_ins ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.jornadas ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.estancias ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.evidencias_fotograficas ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.actividades_programadas ENABLE ROW LEVEL SECURITY;
 
 -- Políticas de RLS
-CREATE POLICY "Lectura de perfiles" ON public.profiles FOR SELECT TO authenticated USING (true);
-CREATE POLICY "Lectura de terminales" ON public.terminales FOR SELECT TO authenticated USING (true);
-CREATE POLICY "Lectura de departamentos" ON public.departamentos FOR SELECT TO authenticated USING (true);
+CREATE POLICY "Lectura de perfiles" ON public.profiles FOR SELECT TO authenticated, anon USING (true);
+CREATE POLICY "Lectura de terminales" ON public.terminales FOR SELECT TO authenticated, anon USING (true);
+CREATE POLICY "Lectura de departamentos" ON public.departamentos FOR SELECT TO authenticated, anon USING (true);
 
--- Permisos en Jornadas, Estancias y Evidencias
-CREATE POLICY "Lectura de jornadas por autenticados" ON public.jornadas FOR SELECT TO authenticated USING (true);
-CREATE POLICY "Escritura de jornadas para supervisora" ON public.jornadas FOR ALL TO authenticated USING (true);
+CREATE POLICY "Lectura de check_ins" ON public.check_ins FOR SELECT TO authenticated, anon USING (true);
+CREATE POLICY "Inserción de check_ins" ON public.check_ins FOR INSERT TO authenticated, anon WITH CHECK (true);
 
-CREATE POLICY "Lectura de estancias por autenticados" ON public.estancias FOR SELECT TO authenticated USING (true);
-CREATE POLICY "Escritura de estancias para supervisora" ON public.estancias FOR ALL TO authenticated USING (true);
+CREATE POLICY "Lectura de jornadas por autenticados" ON public.jornadas FOR SELECT TO authenticated, anon USING (true);
+CREATE POLICY "Escritura de jornadas para supervisora" ON public.jornadas FOR ALL TO authenticated, anon USING (true);
 
-CREATE POLICY "Lectura de evidencias" ON public.evidencias_fotograficas FOR SELECT TO authenticated USING (true);
-CREATE POLICY "Inserción de evidencias" ON public.evidencias_fotograficas FOR INSERT TO authenticated WITH CHECK (true);
+CREATE POLICY "Lectura de estancias por autenticados" ON public.estancias FOR SELECT TO authenticated, anon USING (true);
+CREATE POLICY "Escritura de estancias para supervisora" ON public.estancias FOR ALL TO authenticated, anon USING (true);
 
--- Permisos en Actividades Programadas (Pantallas 8 y 9)
-CREATE POLICY "Lectura de actividades para jefe y supervisora" ON public.actividades_programadas FOR SELECT TO authenticated USING (true);
-CREATE POLICY "Gestión de actividades programadas para supervisora" ON public.actividades_programadas FOR ALL TO authenticated USING (true);
+CREATE POLICY "Lectura de evidencias" ON public.evidencias_fotograficas FOR SELECT TO authenticated, anon USING (true);
+CREATE POLICY "Inserción de evidencias" ON public.evidencias_fotograficas FOR INSERT TO authenticated, anon WITH CHECK (true);
+
+CREATE POLICY "Lectura de actividades para jefe y supervisora" ON public.actividades_programadas FOR SELECT TO authenticated, anon USING (true);
+CREATE POLICY "Gestión de actividades programadas para supervisora" ON public.actividades_programadas FOR ALL TO authenticated, anon USING (true);
 
 -- ====================================================================
 -- TRIGGERS Y FUNCIONES AUTOMÁTICAS
