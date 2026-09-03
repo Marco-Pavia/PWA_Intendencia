@@ -38,7 +38,6 @@ export default function CheckIn({ onCheckInSuccess }) {
   const videoRef = useRef(null)
   const canvasRef = useRef(null)
   const cameraInputRef = useRef(null)
-  const galleryInputRef = useRef(null)
 
   // Cargar catálogo de terminales desde Supabase DB manteniendo 'Terminal Pipila' por defecto
   useEffect(() => {
@@ -425,37 +424,23 @@ export default function CheckIn({ onCheckInSuccess }) {
                   <h4>Fotografía de Check-In</h4>
                   <p>Asegúrate de que la fotografía sea clara y legible.</p>
 
-                  <div className="camera-actions-row" style={{ marginTop: '1rem', display: 'flex', gap: '0.75rem', justifyContent: 'center' }}>
+                  <div className="camera-actions-row" style={{ marginTop: '1rem', display: 'flex', justifyContent: 'center' }}>
                     <button
                       type="button"
                       className="btn-camera-trigger"
+                      style={{ padding: '0.85rem 2rem', fontSize: '1rem' }}
                       onClick={startCamera}
                     >
                       📷 Tomar Foto
                     </button>
-                    <button
-                      type="button"
-                      className="btn-upload-trigger"
-                      onClick={() => galleryInputRef.current?.click()}
-                    >
-                      📁 Subir Foto
-                    </button>
                   </div>
 
-                  {/* Input Nombramiento Directo de Cámara */}
+                  {/* Input Directo de Captura de Cámara */}
                   <input
                     type="file"
                     ref={cameraInputRef}
                     accept="image/*"
                     capture="environment"
-                    className="hidden-file-input"
-                    onChange={handleFileSelect}
-                  />
-                  {/* Input de Galería de Fotos */}
-                  <input
-                    type="file"
-                    ref={galleryInputRef}
-                    accept="image/*"
                     className="hidden-file-input"
                     onChange={handleFileSelect}
                   />
@@ -480,7 +465,7 @@ export default function CheckIn({ onCheckInSuccess }) {
               <p className="disabled-hint">⚠️ Esperando confirmación de ubicación GPS para habilitar registro.</p>
             )}
             {gpsStatus === 'connected' && !photoFileWebP && (
-              <p className="disabled-hint">⚠️ Toma o sube la foto requerida para habilitar registro.</p>
+              <p className="disabled-hint">⚠️ Toma la foto requerida para habilitar registro.</p>
             )}
           </div>
         </div>
