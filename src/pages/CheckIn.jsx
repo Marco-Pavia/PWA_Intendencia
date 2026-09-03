@@ -300,8 +300,16 @@ export default function CheckIn({ onCheckInSuccess }) {
             </div>
           )}
 
-          <button type="button" className="btn-primary full-width" onClick={resetForm}>
-            Realizar Nuevo Registro
+          <button
+            type="button"
+            className="btn-complete-checkin full-width"
+            onClick={() => {
+              if (onCheckInSuccess) {
+                onCheckInSuccess(successData.terminal)
+              }
+            }}
+          >
+            Continuar a Estancia en Terminal (Pantalla 2) →
           </button>
         </div>
       ) : (

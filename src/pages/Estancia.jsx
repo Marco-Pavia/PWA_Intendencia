@@ -10,6 +10,8 @@ export default function Estancia({ currentTerminal = 'Terminal Pipila', entryTim
   const [uploading, setUploading] = useState(false)
   const [customLabel] = useState('')
 
+  const fileInputRef = useRef(null)
+
   // Cargar evidencias guardadas localmente o en Supabase
   useEffect(() => {
     const savedEvidences = localStorage.getItem(`estancia_evidences_${currentTerminal}`)
