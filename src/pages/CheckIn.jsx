@@ -209,7 +209,7 @@ export default function CheckIn({ onCheckInSuccess }) {
         .select()
 
       if (dbError) {
-        console.warn('Inserción en Supabase DB falló, usando respaldo local (demo):', dbError)
+        console.warn('Inserción en Supabase DB falló, usando respaldo local:', dbError)
       }
 
       const existingCheckIns = JSON.parse(localStorage.getItem('intendencia_check_ins') || '[]')
@@ -276,7 +276,7 @@ export default function CheckIn({ onCheckInSuccess }) {
               <polyline points="20 6 9 17 4 12" />
             </svg>
           </div>
-          <h3>¡Entrada Registrada Exitosamente!</h3>
+          <h3>¡Entrada Registrada Correctamente!</h3>
           <p className="success-sub">Tu inicio de turno ha sido grabado en el sistema.</p>
 
           <div className="summary-box">
@@ -361,7 +361,7 @@ export default function CheckIn({ onCheckInSuccess }) {
               {gpsStatus === 'connected' && (
                 <>
                   <span className="check-icon">✓</span>
-                  GPS Conectado (Ubicación Confirmada)
+                  GPS Conectado (Ubicación Obtenida)
                 </>
               )}
               {gpsStatus === 'error' && 'Reintentar Conexión GPS'}
@@ -422,18 +422,6 @@ export default function CheckIn({ onCheckInSuccess }) {
                   <h4>Check - In</h4>
                   <p>Revisar que sea una imagen clara.</p>
 
-                  <div className="camera-actions-row">
-                    <button type="button" className="btn-camera-trigger" onClick={startCamera}>
-                      Activar Cámara
-                    </button>
-                    <button
-                      type="button"
-                      className="btn-upload-trigger"
-                      onClick={() => fileInputRef.current?.click()}
-                    >
-                      Subir Foto
-                    </button>
-                  </div>
                   <input
                     type="file"
                     ref={fileInputRef}
