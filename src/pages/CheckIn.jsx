@@ -28,6 +28,7 @@ export default function CheckIn({ onCheckInSuccess }) {
 
   // Cámara y Foto WebP
   const [cameraActive, setCameraActive] = useState(false)
+  const [mediaStream, setMediaStream] = useState(null)
   const [photoPreview, setPhotoPreview] = useState(null)
   const [photoFileWebP, setPhotoFileWebP] = useState(null)
   const [compressing, setCompressing] = useState(false)
@@ -106,19 +107,35 @@ export default function CheckIn({ onCheckInSuccess }) {
     obtainGpsLocation()
   }, [obtainGpsLocation])
 
-  // 2. Control de Cámara WebRTC
+  // Asignar el stream a la etiqueta video en cuanto el componente de cámara en vivo se monte en el DOM
+  useEffect(() => {
+    if (cameraActive && mediaStream && videoRef.current) {
+      videoRef.current.srcObject = mediaStream
+      videoRef.current.play().catch(err => console.warn('Error al reproducir video:', err))
+    }
+  }, [cameraActive, mediaStream])
+
+  // 2. Control de Cámara (Disparador Nativo en Móvil o Stream WebRTC)
   const startCamera = async () => {
-    // En móviles, si no inicia el stream en vivo, se activa el input de la cámara directamente
+    setErrorMsg('')
+    
+    // Detectar si es un dispositivo móvil/PWA para activar la cámara nativa inmediatamente sin pantalla en negro
+    const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
+    if (isMobile) {
+      if (cameraInputRef.current) {
+        cameraInputRef.current.click()
+        return
+      }
+    }
+
+    // Para navegadores desktop o fallback, intentar WebRTC stream
     try {
       if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
         const stream = await navigator.mediaDevices.getUserMedia({
           video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
         })
+        setMediaStream(stream)
         setCameraActive(true)
-        setErrorMsg('')
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream
-        }
       } else {
         cameraInputRef.current?.click()
       }
@@ -129,9 +146,9 @@ export default function CheckIn({ onCheckInSuccess }) {
   }
 
   const stopCamera = () => {
-    if (videoRef.current && videoRef.current.srcObject) {
-      const tracks = videoRef.current.srcObject.getTracks()
-      tracks.forEach(track => track.stop())
+    if (mediaStream) {
+      mediaStream.getTracks().forEach(track => track.stop())
+      setMediaStream(null)
     }
     setCameraActive(false)
   }
@@ -166,7 +183,7 @@ export default function CheckIn({ onCheckInSuccess }) {
     await processCapturedPhoto(dataUrl)
   }
 
-  // 3. Selección de Archivos
+  // 3. Selección / Captura de Archivos
   const handleFileSelect = async (e) => {
     const file = e.target.files[0]
     if (!file) return
@@ -435,7 +452,7 @@ export default function CheckIn({ onCheckInSuccess }) {
                     </button>
                   </div>
 
-                  {/* Input Directo de Captura de Cámara */}
+                  {/* Input Directo de Captura de Cámara Nativa */}
                   <input
                     type="file"
                     ref={cameraInputRef}
