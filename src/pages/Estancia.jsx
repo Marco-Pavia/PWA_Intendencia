@@ -9,6 +9,7 @@ export default function Estancia({ currentTerminal = 'Terminal Pipila', entryTim
   const [evidences, setEvidences] = useState([])
   const [uploading, setUploading] = useState(false)
   const [saveSuccessMsg, setSaveSuccessMsg] = useState('')
+  const [showExitModal, setShowExitModal] = useState(false)
 
   const fileInputRef = useRef(null)
 
@@ -131,7 +132,7 @@ export default function Estancia({ currentTerminal = 'Terminal Pipila', entryTim
             <span className="label">Hora Entrada</span>
             <strong className="time-val">{entryTimeStr}</strong>
           </div>
-          <button type="button" className="btn-salida-terminal" onClick={onSalidaTerminal}>
+          <button type="button" className="btn-salida-terminal" onClick={() => setShowExitModal(true)}>
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
               <polyline points="16 17 21 12 16 7" />
@@ -203,6 +204,41 @@ export default function Estancia({ currentTerminal = 'Terminal Pipila', entryTim
           💾 GUARDAR AVANCE (GUARDADO PARCIAL)
         </button>
       </div>
+
+      {/* Modal de Confirmación de Salida de Terminal */}
+      {showExitModal && (
+        <div className="modal-overlay">
+          <div className="modal-content">
+            <div className="modal-warning-icon">🔄</div>
+            <h3>Confirmar Salida de Terminal</h3>
+            <p>
+              ¿Está segura de registrar su salida de la <strong>{currentTerminal}</strong>? Sus avances y evidencias fotográficas quedarán guardados.
+            </p>
+
+            <div className="modal-actions">
+              <button
+                type="button"
+                className="btn-cancel-modal"
+                onClick={() => setShowExitModal(false)}
+              >
+                Cancelar
+              </button>
+
+              <button
+                type="button"
+                className="btn-confirm-modal"
+                style={{ background: 'var(--primary-navy)' }}
+                onClick={() => {
+                  setShowExitModal(false)
+                  if (onSalidaTerminal) onSalidaTerminal()
+                }}
+              >
+                Sí, Registrar Salida
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

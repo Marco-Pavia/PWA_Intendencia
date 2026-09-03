@@ -18,9 +18,9 @@ const DEFAULT_TERMINALES = [
 export default function CheckIn({ onCheckInSuccess }) {
   const { user } = useAuth()
 
-  // Lista de terminales (cargada dinámicamente desde Supabase DB o lista default)
+  // Lista de terminales con 'Terminal Pipila' por defecto
   const [terminales, setTerminales] = useState(DEFAULT_TERMINALES)
-  const [selectedTerminal, setSelectedTerminal] = useState(DEFAULT_TERMINALES[0])
+  const [selectedTerminal, setSelectedTerminal] = useState('Terminal Pipila')
 
   // Estados del formulario
   const [gpsStatus, setGpsStatus] = useState('connecting') // 'connecting' | 'connected' | 'error'
@@ -39,7 +39,7 @@ export default function CheckIn({ onCheckInSuccess }) {
   const canvasRef = useRef(null)
   const fileInputRef = useRef(null)
 
-  // Cargar catálogo de terminales desde Supabase DB
+  // Cargar catálogo de terminales desde Supabase DB manteniendo 'Terminal Pipila' por defecto
   useEffect(() => {
     const fetchTerminales = async () => {
       try {
@@ -51,7 +51,11 @@ export default function CheckIn({ onCheckInSuccess }) {
         if (data && data.length > 0 && !error) {
           const names = data.map(t => t.name)
           setTerminales(names)
-          setSelectedTerminal(names[0])
+          if (names.includes('Terminal Pipila')) {
+            setSelectedTerminal('Terminal Pipila')
+          } else {
+            setSelectedTerminal(names[0])
+          }
         }
       } catch (err) {
         console.warn('Uso de lista por defecto de terminales:', err)
@@ -238,13 +242,6 @@ export default function CheckIn({ onCheckInSuccess }) {
     }
   }
 
-  const resetForm = () => {
-    setSuccessData(null)
-    setPhotoPreview(null)
-    setPhotoFileWebP(null)
-    obtainGpsLocation()
-  }
-
   return (
     <div className="checkin-page-container">
       {/* Visual Indicator of Screen ID */}
@@ -422,6 +419,18 @@ export default function CheckIn({ onCheckInSuccess }) {
                   <h4>Check - In</h4>
                   <p>Revisar que sea una imagen clara.</p>
 
+                  <div className="camera-actions-row">
+                    <button type="button" className="btn-camera-trigger" onClick={startCamera}>
+                      Activar Cámara
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-upload-trigger"
+                      onClick={() => fileInputRef.current?.click()}
+                    >
+                      Subir Foto
+                    </button>
+                  </div>
                   <input
                     type="file"
                     ref={fileInputRef}
