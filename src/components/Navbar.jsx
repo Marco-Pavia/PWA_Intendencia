@@ -111,35 +111,7 @@ export default function Navbar({ currentScreen, onSelectScreen }) {
         <div className="drawer-menu-list">
           {isSupervisora ? (
             <>
-              <div className="menu-group-label">Flujo Operativo de Turno</div>
-              <button
-                type="button"
-                className={`drawer-item ${currentScreen === 1 ? 'active' : ''}`}
-                onClick={() => handleNavigate(1)}
-              >
-                <span className="screen-badge">P1</span>
-                📍 Entrada (Check-In)
-              </button>
-
-              <button
-                type="button"
-                className={`drawer-item ${currentScreen === 2 ? 'active' : ''}`}
-                onClick={() => handleNavigate(2)}
-              >
-                <span className="screen-badge">P2</span>
-                🏢 Estancia (Fotos y Notas)
-              </button>
-
-              <button
-                type="button"
-                className={`drawer-item ${currentScreen === 3 ? 'active' : ''}`}
-                onClick={() => handleNavigate(3)}
-              >
-                <span className="screen-badge">P3</span>
-                🔄 Cambio de Terminal / Fin de Día
-              </button>
-
-              <div className="menu-group-label">Planificación</div>
+              <div className="menu-group-label">Planificación de Mantenimiento</div>
               <button
                 type="button"
                 className={`drawer-item ${currentScreen === 8 ? 'active' : ''}`}

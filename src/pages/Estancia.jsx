@@ -8,27 +8,34 @@ export default function Estancia({ currentTerminal = 'Terminal Pipila', entryTim
     { id: 'ev-2', type: 'LIMPIEZA', label: 'Limpieza Sanitarios', photo_url: 'https://images.unsplash.com/photo-1584622650111-993a426fbf0a?w=400&auto=format&fit=crop&q=80' }
   ])
   const [uploading, setUploading] = useState(false)
-  const [customLabel] = useState('')
+  const [saveSuccessMsg, setSaveSuccessMsg] = useState('')
 
   const fileInputRef = useRef(null)
 
-  // Cargar evidencias guardadas localmente o en Supabase
+  // Cargar evidencias y notas guardadas previamente para esta terminal
   useEffect(() => {
     const savedEvidences = localStorage.getItem(`estancia_evidences_${currentTerminal}`)
     if (savedEvidences) {
       try {
         setEvidences(JSON.parse(savedEvidences))
-      } catch {
-        // Ignorar si falla parseo
+      } catch (e) {
+        console.warn('Error al cargar evidencias guardadas:', e)
       }
+    }
+
+    const savedNotes = localStorage.getItem(`estancia_notes_${currentTerminal}`)
+    if (savedNotes) {
+      setNotes(savedNotes)
     }
   }, [currentTerminal])
 
+  // Subir foto e integrarla inmediatamente al estado y almacenamiento local
   const handleAddPhoto = async (e) => {
     const file = e.target.files[0]
     if (!file) return
 
     setUploading(true)
+    setSaveSuccessMsg('')
     try {
       const webpFile = await convertAndCompressToWebP(file)
       const previewUrl = URL.createObjectURL(webpFile)
@@ -36,7 +43,7 @@ export default function Estancia({ currentTerminal = 'Terminal Pipila', entryTim
       const newEvidence = {
         id: `ev-${Date.now()}`,
         type: 'LIMPIEZA',
-        label: customLabel || 'Evidencia de Trabajo',
+        label: `Foto de Avance ${new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}`,
         photo_url: previewUrl,
         fileSize: (webpFile.size / 1024).toFixed(1)
       }
@@ -51,11 +58,29 @@ export default function Estancia({ currentTerminal = 'Terminal Pipila', entryTim
     }
   }
 
+  // Guardado Parcial Explícito (Notas y Fotos)
+  const handleSaveProgress = () => {
+    localStorage.setItem(`estancia_evidences_${currentTerminal}`, JSON.stringify(evidences))
+    localStorage.setItem(`estancia_notes_${currentTerminal}`, notes)
+    
+    setSaveSuccessMsg('¡Avance guardado con éxito! Puedes cerrar la app y tus fotos/notas se conservarán intactas.')
+    setTimeout(() => {
+      setSaveSuccessMsg('')
+    }, 4000)
+  }
+
   return (
     <div className="estancia-page-container">
       <div className="screen-tag-bar">
         PANTALLA 2 · Estancia (Fotos y Notas)
       </div>
+
+      {/* Mensaje de Confirmación de Guardado */}
+      {saveSuccessMsg && (
+        <div className="success-banner">
+          {saveSuccessMsg}
+        </div>
+      )}
 
       {/* Terminal Status Card */}
       <div className="estancia-header-card">
@@ -117,8 +142,22 @@ export default function Estancia({ currentTerminal = 'Terminal Pipila', entryTim
           rows="4"
           placeholder="Escriba los detalles de las actividades realizadas en esta estancia (ej. Supervisión de área, reposición de insumos de sanitarios, reporte de mantenimiento)..."
           value={notes}
-          onChange={(e) => setNotes(e.target.value)}
+          onChange={(e) => {
+            setNotes(e.target.value)
+            localStorage.setItem(`estancia_notes_${currentTerminal}`, e.target.value)
+          }}
         />
+      </div>
+
+      {/* Explicit Partial Save Button */}
+      <div className="margin-v">
+        <button
+          type="button"
+          className="btn-complete-checkin full-width"
+          onClick={handleSaveProgress}
+        >
+          💾 GUARDAR AVANCE (GUARDADO PARCIAL)
+        </button>
       </div>
     </div>
   )
