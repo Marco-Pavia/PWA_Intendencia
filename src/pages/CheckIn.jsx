@@ -17,15 +17,15 @@ const DEFAULT_TERMINALES = [
 
 export default function CheckIn({ onCheckInSuccess }) {
   const { user } = useAuth()
-  
+
   // Lista de terminales (cargada dinámicamente desde Supabase DB o lista default)
   const [terminales, setTerminales] = useState(DEFAULT_TERMINALES)
   const [selectedTerminal, setSelectedTerminal] = useState(DEFAULT_TERMINALES[0])
-  
+
   // Estados del formulario
   const [gpsStatus, setGpsStatus] = useState('connecting') // 'connecting' | 'connected' | 'error'
   const [coords, setCoords] = useState(null)
-  
+
   // Cámara y Foto WebP
   const [cameraActive, setCameraActive] = useState(false)
   const [photoPreview, setPhotoPreview] = useState(null)
@@ -61,7 +61,7 @@ export default function CheckIn({ onCheckInSuccess }) {
     fetchTerminales()
   }, [])
 
-  // Obtención formateada de fecha (ej. "Jueves, 14 de Agosto")
+  // Obtención formateada de fecha
   const getFormattedDate = () => {
     const now = new Date()
     const options = { weekday: 'long', day: 'numeric', month: 'long' }
@@ -151,7 +151,7 @@ export default function CheckIn({ onCheckInSuccess }) {
     canvas.height = video.videoHeight || 480
     const ctx = canvas.getContext('2d')
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
-    
+
     const dataUrl = canvas.toDataURL('image/png')
     stopCamera()
     await processCapturedPhoto(dataUrl)
@@ -278,7 +278,7 @@ export default function CheckIn({ onCheckInSuccess }) {
           </div>
           <h3>¡Entrada Registrada Exitosamente!</h3>
           <p className="success-sub">Tu inicio de turno ha sido grabado en el sistema.</p>
-          
+
           <div className="summary-box">
             <div className="summary-row">
               <span>Terminal:</span>
@@ -398,7 +398,7 @@ export default function CheckIn({ onCheckInSuccess }) {
                       setPhotoFileWebP(null)
                     }}
                   >
-                    📷 Tomar Otra Foto
+                    Tomar Otra Foto
                   </button>
                 </div>
               ) : cameraActive ? (
@@ -421,7 +421,7 @@ export default function CheckIn({ onCheckInSuccess }) {
                   </div>
                   <h4>Check - In</h4>
                   <p>Revisar que sea una imagen clara.</p>
-                  
+
                   <div className="camera-actions-row">
                     <button type="button" className="btn-camera-trigger" onClick={startCamera}>
                       Activar Cámara

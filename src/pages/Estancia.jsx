@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
+import { supabase } from '../lib/supabaseClient'
 import { convertAndCompressToWebP } from '../utils/imageCompressor'
+
+const MAX_NOTES_LENGTH = 500
 
 export default function Estancia({ currentTerminal = 'Terminal Pipila', entryTimeStr = '09:15 AM', onSalidaTerminal }) {
   const [notes, setNotes] = useState('')
@@ -25,11 +28,21 @@ export default function Estancia({ currentTerminal = 'Terminal Pipila', entryTim
 
     const savedNotes = localStorage.getItem(`estancia_notes_${currentTerminal}`)
     if (savedNotes) {
-      setNotes(savedNotes)
+      setNotes(savedNotes.substring(0, MAX_NOTES_LENGTH))
     }
   }, [currentTerminal])
 
-  // Subir foto e integrarla inmediatamente al estado y almacenamiento local
+  // Convertir Blob WebP a Base64 permanente para evitar que las fotos "desaparezcan" al reiniciar la app
+  const fileToBase64 = (file) => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onloadend = () => resolve(reader.result)
+      reader.onerror = reject
+      reader.readAsDataURL(file)
+    })
+  }
+
+  // Subir foto, comprimir a WebP, guardar URL pública o Base64 persistente
   const handleAddPhoto = async (e) => {
     const file = e.target.files[0]
     if (!file) return
@@ -37,20 +50,47 @@ export default function Estancia({ currentTerminal = 'Terminal Pipila', entryTim
     setUploading(true)
     setSaveSuccessMsg('')
     try {
+      // 1. Convertir y comprimir foto a .WebP
       const webpFile = await convertAndCompressToWebP(file)
-      const previewUrl = URL.createObjectURL(webpFile)
+
+      // 2. Generar Base64 Data URL persistente (nunca caduca ni se pierde)
+      const base64Url = await fileToBase64(webpFile)
+      let finalPhotoUrl = base64Url
+
+      // 3. Intentar subir a Supabase Storage para tener respaldo en la nube
+      try {
+        const fileName = `estancia_${Date.now()}_${Math.random().toString(36).substring(7)}.webp`
+        const { data: storageData } = await supabase.storage
+          .from('checkin-photos')
+          .upload(fileName, webpFile, {
+            contentType: 'image/webp',
+            upsert: true
+          })
+
+        if (storageData) {
+          const { data: publicUrlData } = supabase.storage
+            .from('checkin-photos')
+            .getPublicUrl(fileName)
+          if (publicUrlData?.publicUrl) {
+            finalPhotoUrl = publicUrlData.publicUrl
+          }
+        }
+      } catch (cloudErr) {
+        console.warn('Subida a nube omitida, conservando Base64 local:', cloudErr)
+      }
 
       const newEvidence = {
         id: `ev-${Date.now()}`,
         type: 'LIMPIEZA',
-        label: `Foto de Avance ${new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}`,
-        photo_url: previewUrl,
+        label: `Foto ${new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}`,
+        photo_url: finalPhotoUrl,
         fileSize: (webpFile.size / 1024).toFixed(1)
       }
 
       const updated = [...evidences, newEvidence]
       setEvidences(updated)
       localStorage.setItem(`estancia_evidences_${currentTerminal}`, JSON.stringify(updated))
+      setSaveSuccessMsg('¡Foto optimizada a WebP y guardada de forma permanente!')
     } catch (err) {
       console.error('Error al subir evidencia:', err)
     } finally {
@@ -61,9 +101,9 @@ export default function Estancia({ currentTerminal = 'Terminal Pipila', entryTim
   // Guardado Parcial Explícito (Notas y Fotos)
   const handleSaveProgress = () => {
     localStorage.setItem(`estancia_evidences_${currentTerminal}`, JSON.stringify(evidences))
-    localStorage.setItem(`estancia_notes_${currentTerminal}`, notes)
+    localStorage.setItem(`estancia_notes_${currentTerminal}`, notes.substring(0, MAX_NOTES_LENGTH))
     
-    setSaveSuccessMsg('¡Avance guardado con éxito! Puedes cerrar la app y tus fotos/notas se conservarán intactas.')
+    setSaveSuccessMsg('¡Avance guardado con éxito! Tus fotos y notas están conservadas permanentemente.')
     setTimeout(() => {
       setSaveSuccessMsg('')
     }, 4000)
@@ -136,15 +176,22 @@ export default function Estancia({ currentTerminal = 'Terminal Pipila', entryTim
 
       {/* Activity Logs Notes */}
       <div className="form-section-card">
-        <label className="section-label">REGISTRO DE ACTIVIDADES</label>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
+          <label className="section-label" style={{ margin: 0 }}>REGISTRO DE ACTIVIDADES</label>
+          <span style={{ fontSize: '0.7rem', color: notes.length >= MAX_NOTES_LENGTH ? '#dc2626' : '#64748b', fontWeight: 600 }}>
+            {notes.length} / {MAX_NOTES_LENGTH} caracteres
+          </span>
+        </div>
         <textarea
           className="activity-notes-input"
           rows="4"
-          placeholder="Escriba los detalles de las actividades realizadas en esta estancia (ej. Supervisión de área, reposición de insumos de sanitarios, reporte de mantenimiento)..."
+          maxLength={MAX_NOTES_LENGTH}
+          placeholder="Escriba los detalles de las actividades realizadas en esta estancia (máximo 500 caracteres)..."
           value={notes}
           onChange={(e) => {
-            setNotes(e.target.value)
-            localStorage.setItem(`estancia_notes_${currentTerminal}`, e.target.value)
+            const val = e.target.value.substring(0, MAX_NOTES_LENGTH)
+            setNotes(val)
+            localStorage.setItem(`estancia_notes_${currentTerminal}`, val)
           }}
         />
       </div>
