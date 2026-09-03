@@ -37,7 +37,8 @@ export default function CheckIn({ onCheckInSuccess }) {
 
   const videoRef = useRef(null)
   const canvasRef = useRef(null)
-  const fileInputRef = useRef(null)
+  const cameraInputRef = useRef(null)
+  const galleryInputRef = useRef(null)
 
   // Cargar catálogo de terminales desde Supabase DB manteniendo 'Terminal Pipila' por defecto
   useEffect(() => {
@@ -108,18 +109,23 @@ export default function CheckIn({ onCheckInSuccess }) {
 
   // 2. Control de Cámara WebRTC
   const startCamera = async () => {
-    setCameraActive(true)
-    setErrorMsg('')
+    // En móviles, si no inicia el stream en vivo, se activa el input de la cámara directamente
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
-      })
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream
+      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
+        })
+        setCameraActive(true)
+        setErrorMsg('')
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream
+        }
+      } else {
+        cameraInputRef.current?.click()
       }
     } catch (err) {
-      console.warn('Cámara en vivo no disponible, se puede subir archivo:', err)
-      setErrorMsg('No se pudo acceder a la cámara en vivo. Puedes seleccionar o tomar una foto con tu dispositivo.')
+      console.warn('Cámara en vivo no disponible, abriendo captura nativa:', err)
+      cameraInputRef.current?.click()
     }
   }
 
@@ -395,7 +401,7 @@ export default function CheckIn({ onCheckInSuccess }) {
                       setPhotoFileWebP(null)
                     }}
                   >
-                    Tomar Otra Foto
+                    📷 Tomar Otra Foto
                   </button>
                 </div>
               ) : cameraActive ? (
@@ -416,26 +422,40 @@ export default function CheckIn({ onCheckInSuccess }) {
                       <circle cx="12" cy="13" r="4" />
                     </svg>
                   </div>
-                  <h4>Check - In</h4>
-                  <p>Revisar que sea una imagen clara.</p>
+                  <h4>Fotografía de Check-In</h4>
+                  <p>Asegúrate de que la fotografía sea clara y legible.</p>
 
-                  <div className="camera-actions-row">
-                    <button type="button" className="btn-camera-trigger" onClick={startCamera}>
-                      Activar Cámara
+                  <div className="camera-actions-row" style={{ marginTop: '1rem', display: 'flex', gap: '0.75rem', justifyContent: 'center' }}>
+                    <button
+                      type="button"
+                      className="btn-camera-trigger"
+                      onClick={startCamera}
+                    >
+                      📷 Tomar Foto
                     </button>
                     <button
                       type="button"
                       className="btn-upload-trigger"
-                      onClick={() => fileInputRef.current?.click()}
+                      onClick={() => galleryInputRef.current?.click()}
                     >
-                      Subir Foto
+                      📁 Subir Foto
                     </button>
                   </div>
+
+                  {/* Input Nombramiento Directo de Cámara */}
                   <input
                     type="file"
-                    ref={fileInputRef}
+                    ref={cameraInputRef}
                     accept="image/*"
                     capture="environment"
+                    className="hidden-file-input"
+                    onChange={handleFileSelect}
+                  />
+                  {/* Input de Galería de Fotos */}
+                  <input
+                    type="file"
+                    ref={galleryInputRef}
+                    accept="image/*"
                     className="hidden-file-input"
                     onChange={handleFileSelect}
                   />
