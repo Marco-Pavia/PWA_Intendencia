@@ -91,18 +91,60 @@ function AppContent() {
     setActiveScreen(2)
   }
 
-  // 2. Al cambiar de terminal en Pantalla 3 -> Regresa a Pantalla 2 con la nueva terminal
-  const handleCambiarTerminal = (newTerminalName) => {
+  // 2. Al cambiar de terminal en Pantalla 3 -> Guarda el nuevo registro de Check-In y pasa a Pantalla 2
+  const handleCambiarTerminal = async (newTerminalName) => {
     const timeNow = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
     const today = new Date().toISOString().slice(0, 10) // 'YYYY-MM-DD'
+
+    const record = {
+      user_id: user?.id || null,
+      user_name: user?.user_metadata?.full_name || 'Supervisora Intendencia',
+      role: 'supervisora',
+      terminal_name: newTerminalName,
+      check_in_time: new Date().toISOString(),
+      latitude: 0,
+      longitude: 0,
+      photo_url: null
+    }
+
+    try {
+      const { data: dbData } = await supabase
+        .from('check_ins')
+        .insert([record])
+        .select()
+
+      const existingCheckIns = JSON.parse(localStorage.getItem('intendencia_check_ins') || '[]')
+      existingCheckIns.push({ ...record, id: dbData?.[0]?.id || `local-${Date.now()}` })
+      localStorage.setItem('intendencia_check_ins', JSON.stringify(existingCheckIns))
+    } catch (err) {
+      console.warn('Error al registrar cambio de terminal:', err)
+      const existingCheckIns = JSON.parse(localStorage.getItem('intendencia_check_ins') || '[]')
+      existingCheckIns.push({ ...record, id: `local-${Date.now()}` })
+      localStorage.setItem('intendencia_check_ins', JSON.stringify(existingCheckIns))
+    }
+
     setCurrentTerminal(newTerminalName)
     setEntryTimeStr(timeNow)
     localStorage.setItem('intendencia_active_stay', JSON.stringify({ terminal: newTerminalName, time: timeNow, date: today }))
     setActiveScreen(2)
   }
 
-  // 3. Al finalizar jornada (Salida Total) en Pantalla 3 -> Regresa a Pantalla 1
+  // 3. Al finalizar jornada (Salida Total) en Pantalla 3 -> Guarda registro de cierre con timestamp exacto
   const handleFinalizarJornada = () => {
+    const timeNow = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
+    const today = new Date().toISOString().slice(0, 10)
+    const closureRecord = {
+      date: today,
+      time: timeNow,
+      timestamp: new Date().toISOString(),
+      terminal: currentTerminal
+    }
+
+    const cierres = JSON.parse(localStorage.getItem('intendencia_cierres_jornada') || '[]')
+    cierres.push(closureRecord)
+    localStorage.setItem('intendencia_cierres_jornada', JSON.stringify(cierres))
+    localStorage.setItem(`intendencia_cierre_${today}`, JSON.stringify(closureRecord))
+
     localStorage.removeItem('intendencia_active_stay')
     setActiveScreen(1)
   }

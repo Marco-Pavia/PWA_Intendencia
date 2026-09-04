@@ -59,6 +59,17 @@ export default function EstatusJornada() {
         } catch { /* ignorar */ }
       }
 
+      // Registro de cierre explicito de jornada
+      const cierreRaw = localStorage.getItem(`intendencia_cierre_${selectedDate}`)
+      let cierreRecord = null
+      if (cierreRaw) {
+        try { cierreRecord = JSON.parse(cierreRaw) } catch { /* ignorar */ }
+      }
+      if (!cierreRecord) {
+        const cierresList = JSON.parse(localStorage.getItem('intendencia_cierres_jornada') || '[]')
+        cierreRecord = cierresList.find(c => c.date === selectedDate) || null
+      }
+
       // 4. Filtrar por fecha seleccionada y DEDUPLICAR por id (evita duplicados DB + localStorage)
       const seenIds = new Set()
       const combinedCheckIns = [...(dbCheckIns || []), ...localCheckIns]
@@ -93,29 +104,27 @@ export default function EstatusJornada() {
             minute: '2-digit'
           })
 
-          // Tiempo real: desde este check-in hasta el siguiente, o hasta ahora si es el último y hay estancia activa
           const isLastCheckIn = idx === combinedCheckIns.length - 1
-          let segmentEndTime = now
+          let segmentEndTime
 
           if (!isLastCheckIn) {
             // El segmento termina cuando comienza el siguiente check-in
             segmentEndTime = new Date(combinedCheckIns[idx + 1].check_in_time || combinedCheckIns[idx + 1].created_at)
-          } else if (!activeStay) {
-            // Último check-in y NO hay estancia activa hoy → jornada finalizada.
-            // Solo contamos hasta el momento guardado (ci_time + duracion estimada al cierre)
-            // En este caso el tiempo ya se acumuló en los segmentos anteriores.
-            // Usamos el momento de la consulta como tope razonable solo si la fecha es hoy;
-            // si es un día anterior, el tiempo máximo es hasta medianoche de ese día.
-            if (selectedDate !== today) {
-              const endOfDay = new Date(`${selectedDate}T23:59:59`)
-              segmentEndTime = endOfDay
-            }
+          } else if (activeStay && selectedDate === today) {
+            // Último check-in Y jornada ACTIVA hoy → cuenta hasta el momento actual
+            segmentEndTime = now
+          } else if (cierreRecord && cierreRecord.timestamp) {
+            // Último check-in y jornada FINALIZADA con registro de cierre → fija la hora de salida exacta
+            segmentEndTime = new Date(cierreRecord.timestamp)
+          } else {
+            // Jornada no activa y sin hora de cierre → el tiempo se detiene en el check-in (sin seguir sumando a now)
+            segmentEndTime = ciTime
           }
 
           const segmentMinutes = Math.max(0, Math.round((segmentEndTime - ciTime) / 60000))
           totalMinutesAccumulated += segmentMinutes
 
-          // Evidencias locales (sin duplicar)
+          // Evidencias locales (notas y fotos)
           const savedNotes = localStorage.getItem(`estancia_notes_${ci.terminal_name}`)
           const savedEvidencesRaw = localStorage.getItem(`estancia_evidences_${ci.terminal_name}`)
           let localEvidences = []
@@ -123,15 +132,18 @@ export default function EstatusJornada() {
             try { localEvidences = JSON.parse(savedEvidencesRaw) } catch { /* ignorar */ }
           }
 
+          // Combinar foto de entrada (check-in) con fotos de evidencia subidas
+          const entryPhoto = ci.photo_url ? [{ label: 'Foto Check-In', photo_url: ci.photo_url }] : []
+          const allPhotos = [...entryPhoto, ...localEvidences]
+
           generatedTimeline.unshift({
             id: ci.id || `ci-${idx}`,
             time: timeFormatted,
             terminal: ci.terminal_name,
             type: idx === 0 ? 'CHECK_IN_INICIAL' : 'CAMBIO_TERMINAL',
             statusTag: idx === 0 ? 'Entrada Registrada' : 'En Estancia',
-            notes: savedNotes || null,
-            photo: ci.photo_url || (localEvidences[0] ? localEvidences[0].photo_url : null),
-            evidences: localEvidences
+            notes: savedNotes || ci.notes || null,
+            photos: allPhotos
           })
         })
 
@@ -302,11 +314,21 @@ export default function EstatusJornada() {
                   </p>
                 )}
 
-                {/* Miniaturas de Fotografías Ampliables */}
-                {item.photo && (
-                  <div className="timeline-photo-box" onClick={() => setSelectedPhotoModal({ url: item.photo, title: item.terminal, time: item.time })}>
-                    <img src={item.photo} alt={item.terminal} style={{ cursor: 'pointer' }} />
-                    <span style={{ fontSize: '0.65rem', color: '#2563eb', fontWeight: 600, display: 'block', marginTop: '2px' }}>🔍 Toca la foto para ampliar</span>
+                {/* Galería de Fotografías (Check-In y Evidencias Subidas) Ampliables */}
+                {item.photos && item.photos.length > 0 && (
+                  <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.5rem' }}>
+                    {item.photos.map((ph, pIdx) => (
+                      <div
+                        key={pIdx}
+                        onClick={() => setSelectedPhotoModal({ url: ph.photo_url, title: item.terminal, time: item.time, label: ph.label || 'Evidencia' })}
+                        style={{ cursor: 'pointer', position: 'relative', width: '80px', height: '80px', borderRadius: '8px', overflow: 'hidden', border: '1px solid #cbd5e1', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}
+                      >
+                        <img src={ph.photo_url} alt={ph.label || 'Evidencia'} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                        <span style={{ position: 'absolute', bottom: '0', left: '0', right: '0', background: 'rgba(15,23,42,0.75)', color: '#fff', fontSize: '0.55rem', padding: '2px 4px', textAlign: 'center', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {ph.label || 'VER'}
+                        </span>
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>
