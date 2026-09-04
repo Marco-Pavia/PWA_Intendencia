@@ -32,6 +32,10 @@ export default function HistoricoRecorrido() {
         .select('*')
         .order('check_in_time', { ascending: true })
 
+      const { data: dbEvidencias } = await supabase
+        .from('evidencias_fotograficas')
+        .select('*')
+
       const localCheckIns = JSON.parse(localStorage.getItem('intendencia_check_ins') || '[]')
       const seenIds = new Set()
       const filteredCheckIns = [...(dbCheckIns || []), ...localCheckIns]
@@ -80,6 +84,9 @@ export default function HistoricoRecorrido() {
         cierreRecord = cierresList.find(c => c.date === targetDate) || null
       }
 
+      // Una jornada de hoy es ACTIVA si hay check-ins y NO se ha marcado cierre
+      const isDayCurrentlyActive = targetDate === today && !cierreRecord && (filteredCheckIns.length > 0 || !!activeStay)
+
       const firstCI = filteredCheckIns[0]
       const firstTime = new Date(firstCI.check_in_time || firstCI.created_at)
       generatedEvents.push({
@@ -97,7 +104,7 @@ export default function HistoricoRecorrido() {
         let exitTime
         if (!isLast) {
           exitTime = new Date(filteredCheckIns[idx + 1].check_in_time || filteredCheckIns[idx + 1].created_at)
-        } else if (activeStay && targetDate === today) {
+        } else if (isDayCurrentlyActive) {
           exitTime = now
         } else if (cierreRecord && cierreRecord.timestamp) {
           exitTime = new Date(cierreRecord.timestamp)
@@ -118,16 +125,25 @@ export default function HistoricoRecorrido() {
           ? exitTime.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
           : 'En curso'
 
-        // Notas y evidencias desde localStorage (incluyendo foto de check-in nativa)
-        const savedNotes = localStorage.getItem(`estancia_notes_${ci.terminal_name}`) || ci.notes || null
+        // Notas y evidencias desde Supabase DB y LocalStorage
+        const savedNotes = ci.notes || localStorage.getItem(`estancia_notes_${ci.terminal_name}`) || null
         const savedEvidencesRaw = localStorage.getItem(`estancia_evidences_${ci.terminal_name}`)
         let localEvidences = []
         if (savedEvidencesRaw) {
           try { localEvidences = JSON.parse(savedEvidencesRaw) } catch { /* ignorar */ }
         }
 
+        const dbEvMatch = (dbEvidencias || [])
+          .filter(ev => ev.label && ev.label.includes(ci.terminal_name))
+          .map(ev => ({ label: ev.label, photo_url: ev.photo_url }))
+
         const entryPhoto = ci.photo_url ? [{ label: 'Foto Check-In', photo_url: ci.photo_url }] : []
-        const photos = [...entryPhoto, ...localEvidences]
+        const photoSeen = new Set()
+        const photos = [...entryPhoto, ...localEvidences, ...dbEvMatch].filter(p => {
+          if (!p.photo_url || photoSeen.has(p.photo_url)) return false
+          photoSeen.add(p.photo_url)
+          return true
+        })
 
         generatedEvents.push({
           id: `stay-${idx}`,
@@ -139,7 +155,6 @@ export default function HistoricoRecorrido() {
           photos
         })
 
-        // Traslado entre terminales
         if (!isLast) {
           generatedEvents.push({
             id: `traslado-${idx}`,
@@ -149,19 +164,14 @@ export default function HistoricoRecorrido() {
         }
       })
 
-      // Evento final: SALIDA (solo si la jornada terminó)
       const lastCI = filteredCheckIns[filteredCheckIns.length - 1]
       if (!activeStay || targetDate !== today) {
-        const salidaTimeStr = cierreRecord
-          ? new Date(cierreRecord.timestamp).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
-          : '—'
-
         generatedEvents.push({
           id: 'node-end',
           type: 'SALIDA_FINAL',
           title: 'SALIDA',
           terminal: lastCI.terminal_name,
-          time: salidaTimeStr
+          time: '—'
         })
       }
 

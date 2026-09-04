@@ -65,6 +65,7 @@ CREATE TABLE IF NOT EXISTS public.check_ins (
   latitude NUMERIC(10, 7),
   longitude NUMERIC(10, 7),
   photo_url TEXT,
+  notes TEXT,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 

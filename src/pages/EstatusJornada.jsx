@@ -5,7 +5,7 @@ export default function EstatusJornada() {
   const [selectedDate, setSelectedDate] = useState(() => new Date().toISOString().split('T')[0])
   const [supervisors, setSupervisors] = useState(['Supervisora Intendencia'])
   const [selectedSupervisor, setSelectedSupervisor] = useState('Supervisora Intendencia')
-  
+
   const [horasTrabajadas, setHorasTrabajadas] = useState('00:00')
   const [currentTerminalActive, setCurrentTerminalActive] = useState('Ninguna (Sin inicio de turno)')
   const [isJornadaActive, setIsJornadaActive] = useState(false)
@@ -21,7 +21,7 @@ export default function EstatusJornada() {
           .from('profiles')
           .select('full_name')
           .eq('role', 'supervisora')
-        
+
         if (data && data.length > 0) {
           const names = data.map(p => p.full_name)
           setSupervisors(names)
@@ -44,17 +44,21 @@ export default function EstatusJornada() {
         .select('*')
         .order('check_in_time', { ascending: true })
 
-      // 2. Cargar respaldo de LocalStorage
+      // 2. Obtener evidencias fotográficas registradas en Supabase DB
+      const { data: dbEvidencias } = await supabase
+        .from('evidencias_fotograficas')
+        .select('*')
+
+      // 3. Cargar respaldo de LocalStorage
       const localCheckIns = JSON.parse(localStorage.getItem('intendencia_check_ins') || '[]')
 
-      // 3. Verificar si hay estancia activa DEL DÍA DE HOY
+      // 4. Verificar si hay estancia activa DEL DÍA DE HOY
       const today = new Date().toISOString().slice(0, 10)
       const activeStayRaw = localStorage.getItem('intendencia_active_stay')
       let activeStay = null
       if (activeStayRaw) {
         try {
           const parsed = JSON.parse(activeStayRaw)
-          // Solo cuenta como activa si es del día de hoy
           if (parsed.date === today) activeStay = parsed
         } catch { /* ignorar */ }
       }
@@ -70,7 +74,7 @@ export default function EstatusJornada() {
         cierreRecord = cierresList.find(c => c.date === selectedDate) || null
       }
 
-      // 4. Filtrar por fecha seleccionada y DEDUPLICAR por id (evita duplicados DB + localStorage)
+      // 5. Filtrar por fecha seleccionada y DEDUPLICAR por id (evita duplicados DB + localStorage)
       const seenIds = new Set()
       const combinedCheckIns = [...(dbCheckIns || []), ...localCheckIns]
         .filter(item => {
@@ -91,10 +95,13 @@ export default function EstatusJornada() {
           return ta - tb
         })
 
-      // 5. Calcular tiempo real acumulado
+      // 6. Calcular tiempo real acumulado
       let totalMinutesAccumulated = 0
       const now = new Date()
       const generatedTimeline = []
+
+      // Una jornada de hoy es ACTIVA si hay check-ins y NO se ha marcado cierre de día
+      const isDayCurrentlyActive = selectedDate === today && !cierreRecord && (combinedCheckIns.length > 0 || !!activeStay)
 
       if (combinedCheckIns.length > 0) {
         combinedCheckIns.forEach((ci, idx) => {
@@ -110,14 +117,14 @@ export default function EstatusJornada() {
           if (!isLastCheckIn) {
             // El segmento termina cuando comienza el siguiente check-in
             segmentEndTime = new Date(combinedCheckIns[idx + 1].check_in_time || combinedCheckIns[idx + 1].created_at)
-          } else if (activeStay && selectedDate === today) {
-            // Último check-in Y jornada ACTIVA hoy → cuenta hasta el momento actual
+          } else if (isDayCurrentlyActive) {
+            // Último check-in Y jornada ACTIVA hoy → cuenta hasta el momento actual en vivo
             segmentEndTime = now
           } else if (cierreRecord && cierreRecord.timestamp) {
             // Último check-in y jornada FINALIZADA con registro de cierre → fija la hora de salida exacta
             segmentEndTime = new Date(cierreRecord.timestamp)
           } else {
-            // Jornada no activa y sin hora de cierre → el tiempo se detiene en el check-in (sin seguir sumando a now)
+            // Jornada no activa y sin hora de cierre → el tiempo se detiene en el check-in
             segmentEndTime = ciTime
           }
 
@@ -132,9 +139,21 @@ export default function EstatusJornada() {
             try { localEvidences = JSON.parse(savedEvidencesRaw) } catch { /* ignorar */ }
           }
 
-          // Combinar foto de entrada (check-in) con fotos de evidencia subidas
+          // Evidencias de Supabase DB que coincidan con la terminal o check-in
+          const dbEvMatch = (dbEvidencias || [])
+            .filter(ev => ev.label && ev.label.includes(ci.terminal_name))
+            .map(ev => ({ label: ev.label, photo_url: ev.photo_url }))
+
+          // Combinar foto de entrada (check-in) con fotos de evidencia de DB y local
           const entryPhoto = ci.photo_url ? [{ label: 'Foto Check-In', photo_url: ci.photo_url }] : []
-          const allPhotos = [...entryPhoto, ...localEvidences]
+
+          // Deduplicar fotos por URL
+          const photoSeen = new Set()
+          const allPhotos = [...entryPhoto, ...localEvidences, ...dbEvMatch].filter(p => {
+            if (!p.photo_url || photoSeen.has(p.photo_url)) return false
+            photoSeen.add(p.photo_url)
+            return true
+          })
 
           generatedTimeline.unshift({
             id: ci.id || `ci-${idx}`,
@@ -147,20 +166,19 @@ export default function EstatusJornada() {
           })
         })
 
-        // 6. Estatus: ACTIVO solo si hay estancia activa del día de hoy Y estamos consultando hoy
+        // 7. Estatus: ACTIVO si la jornada de hoy está en curso
         const latestCheckIn = combinedCheckIns[combinedCheckIns.length - 1]
-        if (activeStay && selectedDate === today) {
+        if (isDayCurrentlyActive) {
           setCurrentTerminalActive(`EN ESTANCIA (${latestCheckIn.terminal_name})`)
           setIsJornadaActive(true)
         } else {
-          // Jornada finalizada o consultando día pasado
           setCurrentTerminalActive(`JORNADA FINALIZADA (${latestCheckIn.terminal_name})`)
           setIsJornadaActive(false)
         }
 
       } else if (activeStay && selectedDate === today) {
         // Sin check-ins en DB pero hay estancia activa local del día de hoy
-        const ciTime = new Date(`${today}T${activeStay.time}`)
+        const ciTime = activeStay.timestamp ? new Date(activeStay.timestamp) : now
         const segmentMinutes = Math.max(0, Math.round((now - ciTime) / 60000))
         totalMinutesAccumulated += segmentMinutes
 
@@ -174,7 +192,7 @@ export default function EstatusJornada() {
           type: 'ESTANCIA_ACTIVA',
           statusTag: 'En Progreso',
           notes: localStorage.getItem(`estancia_notes_${activeStay.terminal}`) || null,
-          photo: null
+          photos: []
         })
       } else {
         setCurrentTerminalActive('Sin actividad en la fecha seleccionada')
@@ -199,6 +217,11 @@ export default function EstatusJornada() {
 
   useEffect(() => {
     loadRealtimeJornadaData()
+    // Refresco automático en tiempo real cada 30 segundos si la jornada está activa
+    const interval = setInterval(() => {
+      loadRealtimeJornadaData()
+    }, 30000)
+    return () => clearInterval(interval)
   }, [loadRealtimeJornadaData])
 
   return (
@@ -285,47 +308,47 @@ export default function EstatusJornada() {
         {timelineItems.length > 0 && (
           <div className="vertical-timeline">
             {timelineItems.map((item) => (
-            <div key={item.id} className="timeline-item">
-              <div className="timeline-node" />
-              <div className="timeline-content">
-                <div className="timeline-header-row">
-                  <h4>{item.terminal}</h4>
-                  <span className="time-stamp">{item.time}</span>
-                </div>
-                
-                <div className="tags-row">
-                  <span className="type-pill">{item.type}</span>
-                  <span className="status-tag">{item.statusTag}</span>
-                </div>
-
-                {/* Notas de la Estancia */}
-                {item.notes && (
-                  <p className="stay-notes" style={{ fontSize: '0.8rem', color: '#475569', margin: '0.4rem 0', background: '#f8fafc', padding: '0.5rem', borderRadius: '6px', borderLeft: '3px solid #3b82f6' }}>
-                    💬 {item.notes}
-                  </p>
-                )}
-
-                {/* Galería de Fotografías (Check-In y Evidencias Subidas) Ampliables */}
-                {item.photos && item.photos.length > 0 && (
-                  <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.5rem' }}>
-                    {item.photos.map((ph, pIdx) => (
-                      <div
-                        key={pIdx}
-                        onClick={() => setSelectedPhotoModal({ url: ph.photo_url, title: item.terminal, time: item.time, label: ph.label || 'Evidencia' })}
-                        style={{ cursor: 'pointer', position: 'relative', width: '80px', height: '80px', borderRadius: '8px', overflow: 'hidden', border: '1px solid #cbd5e1', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}
-                      >
-                        <img src={ph.photo_url} alt={ph.label || 'Evidencia'} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                        <span style={{ position: 'absolute', bottom: '0', left: '0', right: '0', background: 'rgba(15,23,42,0.75)', color: '#fff', fontSize: '0.55rem', padding: '2px 4px', textAlign: 'center', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                          {ph.label || 'VER'}
-                        </span>
-                      </div>
-                    ))}
+              <div key={item.id} className="timeline-item">
+                <div className="timeline-node" />
+                <div className="timeline-content">
+                  <div className="timeline-header-row">
+                    <h4>{item.terminal}</h4>
+                    <span className="time-stamp">{item.time}</span>
                   </div>
-                )}
+
+                  <div className="tags-row">
+                    <span className="type-pill">{item.type}</span>
+                    <span className="status-tag">{item.statusTag}</span>
+                  </div>
+
+                  {/* Notas de la Estancia */}
+                  {item.notes && (
+                    <p className="stay-notes" style={{ fontSize: '0.8rem', color: '#475569', margin: '0.4rem 0', background: '#f8fafc', padding: '0.5rem', borderRadius: '6px', borderLeft: '3px solid #3b82f6' }}>
+                      💬 {item.notes}
+                    </p>
+                  )}
+
+                  {/* Galería de Fotografías (Check-In y Evidencias Subidas) Ampliables */}
+                  {item.photos && item.photos.length > 0 && (
+                    <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.5rem' }}>
+                      {item.photos.map((ph, pIdx) => (
+                        <div
+                          key={pIdx}
+                          onClick={() => setSelectedPhotoModal({ url: ph.photo_url, title: item.terminal, time: item.time, label: ph.label || 'Evidencia' })}
+                          style={{ cursor: 'pointer', position: 'relative', width: '80px', height: '80px', borderRadius: '8px', overflow: 'hidden', border: '1px solid #cbd5e1', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}
+                        >
+                          <img src={ph.photo_url} alt={ph.label || 'Evidencia'} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                          <span style={{ position: 'absolute', bottom: '0', left: '0', right: '0', background: 'rgba(15,23,42,0.75)', color: '#fff', fontSize: '0.55rem', padding: '2px 4px', textAlign: 'center', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                            {ph.label || 'VER'}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
-        </div>
+            ))}
+          </div>
         )}
       </div>
 
@@ -345,7 +368,7 @@ export default function EstatusJornada() {
               </button>
             </div>
             <p style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '0.75rem' }}>Hora de registro: {selectedPhotoModal.time}</p>
-            
+
             <div style={{ borderRadius: '8px', overflow: 'hidden', maxHeight: '70vh' }}>
               <img src={selectedPhotoModal.url} alt="Evidencia en HD" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
             </div>

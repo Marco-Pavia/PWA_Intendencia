@@ -13,8 +13,9 @@ export default function Estancia({ currentTerminal = 'Terminal Pipila', entryTim
 
   const fileInputRef = useRef(null)
 
-  // Cargar evidencias y notas guardadas previamente para esta terminal
+  // Sincronizar evidencias y notas con LocalStorage y Supabase DB en tiempo real
   useEffect(() => {
+    // 1. Carga inicial desde LocalStorage para respuesta inmediata
     const savedEvidences = localStorage.getItem(`estancia_evidences_${currentTerminal}`)
     if (savedEvidences) {
       try {
@@ -28,9 +29,85 @@ export default function Estancia({ currentTerminal = 'Terminal Pipila', entryTim
     if (savedNotes) {
       setNotes(savedNotes.substring(0, MAX_NOTES_LENGTH))
     }
+
+    // 2. Consulta en la nube (Supabase DB) para restaurar notas y fotos sincronizadas entre dispositivos
+    const fetchCloudEstanciaData = async () => {
+      try {
+        // Cargar notas desde tabla check_ins
+        const { data: dbCheckIns } = await supabase
+          .from('check_ins')
+          .select('id, notes')
+          .eq('terminal_name', currentTerminal)
+          .order('check_in_time', { ascending: false })
+          .limit(1)
+
+        if (dbCheckIns && dbCheckIns.length > 0 && dbCheckIns[0].notes) {
+          const cloudNotes = dbCheckIns[0].notes.substring(0, MAX_NOTES_LENGTH)
+          setNotes(cloudNotes)
+          localStorage.setItem(`estancia_notes_${currentTerminal}`, cloudNotes)
+        }
+
+        // Cargar evidencias fotográficas de la terminal en DB
+        const { data: dbEvidencias } = await supabase
+          .from('evidencias_fotograficas')
+          .select('*')
+          .order('created_at', { ascending: true })
+
+        if (dbEvidencias && dbEvidencias.length > 0) {
+          const terminalEvs = dbEvidencias
+            .filter(ev => ev.label && ev.label.includes(currentTerminal))
+            .map((ev, idx) => ({
+              id: ev.id || `ev-db-${idx}`,
+              type: ev.category || 'LIMPIEZA',
+              label: ev.label,
+              photo_url: ev.photo_url
+            }))
+
+          if (terminalEvs.length > 0) {
+            setEvidences(prev => {
+              const seen = new Set(prev.map(p => p.photo_url))
+              const merged = [...prev]
+              terminalEvs.forEach(item => {
+                if (!seen.has(item.photo_url)) {
+                  seen.add(item.photo_url)
+                  merged.push(item)
+                }
+              })
+              localStorage.setItem(`estancia_evidences_${currentTerminal}`, JSON.stringify(merged))
+              return merged
+            })
+          }
+        }
+      } catch (err) {
+        console.warn('Error al obtener datos de estancia desde Supabase:', err)
+      }
+    }
+
+    fetchCloudEstanciaData()
   }, [currentTerminal])
 
-  // Convertir Blob WebP a Base64 permanente para evitar que las fotos "desaparezcan" al reiniciar la app
+  // Función de ayuda para respaldar notas en Supabase DB
+  const saveNotesToSupabase = async (notesText) => {
+    try {
+      const { data: latestCI } = await supabase
+        .from('check_ins')
+        .select('id')
+        .eq('terminal_name', currentTerminal)
+        .order('check_in_time', { ascending: false })
+        .limit(1)
+
+      if (latestCI && latestCI.length > 0) {
+        await supabase
+          .from('check_ins')
+          .update({ notes: notesText })
+          .eq('id', latestCI[0].id)
+      }
+    } catch (err) {
+      console.warn('Error al respaldar notas en Supabase DB:', err)
+    }
+  }
+
+  // Convertir Blob WebP a Base64 permanente como respaldo
   const fileToBase64 = (file) => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader()
@@ -40,7 +117,7 @@ export default function Estancia({ currentTerminal = 'Terminal Pipila', entryTim
     })
   }
 
-  // Subir foto, comprimir a WebP, guardar URL pública o Base64 persistente
+  // Subir foto, comprimir a WebP, guardar URL pública en Supabase Storage & DB
   const handleAddPhoto = async (e) => {
     const file = e.target.files[0]
     if (!file) return
@@ -51,7 +128,7 @@ export default function Estancia({ currentTerminal = 'Terminal Pipila', entryTim
       // 1. Convertir y comprimir foto a .WebP
       const webpFile = await convertAndCompressToWebP(file)
 
-      // 2. Generar Base64 Data URL persistente (nunca caduca ni se pierde)
+      // 2. Generar Base64 Data URL persistente (respaldo local)
       const base64Url = await fileToBase64(webpFile)
       let finalPhotoUrl = base64Url
 
@@ -77,10 +154,11 @@ export default function Estancia({ currentTerminal = 'Terminal Pipila', entryTim
         console.warn('Subida a nube omitida, conservando Base64 local:', cloudErr)
       }
 
+      const timeLabel = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
       const newEvidence = {
         id: `ev-${Date.now()}`,
         type: 'LIMPIEZA',
-        label: `Foto ${new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}`,
+        label: `${currentTerminal} - Foto ${timeLabel}`,
         photo_url: finalPhotoUrl,
         fileSize: (webpFile.size / 1024).toFixed(1)
       }
@@ -88,7 +166,22 @@ export default function Estancia({ currentTerminal = 'Terminal Pipila', entryTim
       const updated = [...evidences, newEvidence]
       setEvidences(updated)
       localStorage.setItem(`estancia_evidences_${currentTerminal}`, JSON.stringify(updated))
-      setSaveSuccessMsg('¡Foto optimizada a WebP y guardada de forma permanente!')
+
+      // Guardar también en tabla 'evidencias_fotograficas' de Supabase DB
+      try {
+        await supabase.from('evidencias_fotograficas').insert([{
+          photo_url: finalPhotoUrl,
+          category: 'SUPERVISION',
+          label: newEvidence.label
+        }])
+      } catch (dbEvErr) {
+        console.warn('Respaldo en DB evidencias omitido:', dbEvErr)
+      }
+
+      // Sincronizar también las notas actuales
+      await saveNotesToSupabase(notes)
+
+      setSaveSuccessMsg('¡Foto WebP optimizada y sincronizada en la nube!')
     } catch (err) {
       console.error('Error al subir evidencia:', err)
     } finally {
@@ -96,12 +189,15 @@ export default function Estancia({ currentTerminal = 'Terminal Pipila', entryTim
     }
   }
 
-  // Guardado Parcial Explícito (Notas y Fotos)
-  const handleSaveProgress = () => {
+  // Guardado Parcial Explícito en Nube y Local
+  const handleSaveProgress = async () => {
+    const trimmedNotes = notes.substring(0, MAX_NOTES_LENGTH)
     localStorage.setItem(`estancia_evidences_${currentTerminal}`, JSON.stringify(evidences))
-    localStorage.setItem(`estancia_notes_${currentTerminal}`, notes.substring(0, MAX_NOTES_LENGTH))
+    localStorage.setItem(`estancia_notes_${currentTerminal}`, trimmedNotes)
 
-    setSaveSuccessMsg('¡Avance guardado con éxito! Tus fotos y notas están conservadas permanentemente.')
+    await saveNotesToSupabase(trimmedNotes)
+
+    setSaveSuccessMsg('¡Avance guardado con éxito! Fotos y notas sincronizadas en la nube para todos los dispositivos.')
     setTimeout(() => {
       setSaveSuccessMsg('')
     }, 4000)
@@ -190,6 +286,9 @@ export default function Estancia({ currentTerminal = 'Terminal Pipila', entryTim
             const val = e.target.value.substring(0, MAX_NOTES_LENGTH)
             setNotes(val)
             localStorage.setItem(`estancia_notes_${currentTerminal}`, val)
+          }}
+          onBlur={(e) => {
+            saveNotesToSupabase(e.target.value.substring(0, MAX_NOTES_LENGTH))
           }}
         />
       </div>
