@@ -187,26 +187,8 @@ export default function EstatusJornada() {
       const mins = clampedMinutes % 60
       setHorasTrabajadas(`${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`)
 
-      setTimelineItems(generatedTimeline.length > 0 ? generatedTimeline : [
-        {
-          id: 'demo-1',
-          time: '10:45',
-          terminal: 'Terminal Haciendita',
-          type: 'LIMPIEZA',
-          statusTag: 'En Progreso',
-          notes: 'Supervisión de piso, reposición de insumos de sanitarios y reporte de mantenimiento.',
-          photo: 'https://images.unsplash.com/photo-1581578731548-c64695cc6952?w=400&auto=format&fit=crop&q=80'
-        },
-        {
-          id: 'demo-2',
-          time: '08:00',
-          terminal: 'Terminal Pipila',
-          type: 'CHECK_IN',
-          statusTag: 'Entrada Registrada',
-          notes: 'Check-In inicial de turno con ubicación GPS y foto WebP requerida.',
-          photo: 'https://images.unsplash.com/photo-1584622650111-993a426fbf0a?w=400&auto=format&fit=crop&q=80'
-        }
-      ])
+      // Solo datos reales (sin datos demo)
+      setTimelineItems(generatedTimeline)
 
     } catch (err) {
       console.warn('Error al cargar datos en tiempo real de Supabase:', err)
@@ -292,8 +274,17 @@ export default function EstatusJornada() {
           </button>
         </div>
 
-        <div className="vertical-timeline">
-          {timelineItems.map((item) => (
+        {timelineItems.length === 0 && !loadingData && (
+          <div style={{ textAlign: 'center', padding: '2.5rem 1rem', color: '#94a3b8' }}>
+            <div style={{ fontSize: '2.5rem', marginBottom: '0.75rem' }}>📋</div>
+            <p style={{ fontWeight: 700, fontSize: '1rem', color: '#64748b', margin: '0 0 0.25rem' }}>Sin registros</p>
+            <p style={{ fontSize: '0.82rem', margin: 0 }}>No hay actividad registrada para la fecha seleccionada.</p>
+          </div>
+        )}
+
+        {timelineItems.length > 0 && (
+          <div className="vertical-timeline">
+            {timelineItems.map((item) => (
             <div key={item.id} className="timeline-item">
               <div className="timeline-node" />
               <div className="timeline-content">
@@ -335,6 +326,7 @@ export default function EstatusJornada() {
             </div>
           ))}
         </div>
+        )}
       </div>
 
       {/* Modal de Inspección de Fotografía a Pantalla Completa */}
