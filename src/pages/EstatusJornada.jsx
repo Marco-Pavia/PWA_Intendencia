@@ -38,43 +38,89 @@ export default function EstatusJornada() {
   const loadRealtimeJornadaData = useCallback(async () => {
     setLoadingData(true)
     try {
-      // 1. Obtener check-ins registrados en la fecha seleccionada
+      // 1. Obtener check-ins del día seleccionado desde Supabase
       const { data: dbCheckIns } = await supabase
         .from('check_ins')
         .select('*')
         .order('check_in_time', { ascending: true })
 
-      // 3. Cargar datos respaldados en Local Storage para respaldo inmediato
+      // 2. Cargar respaldo de LocalStorage
       const localCheckIns = JSON.parse(localStorage.getItem('intendencia_check_ins') || '[]')
-      const activeStay = localStorage.getItem('intendencia_active_stay')
 
-      // Filtrar por fecha seleccionada
-      const combinedCheckIns = [...(dbCheckIns || []), ...localCheckIns].filter(item => {
-        const itemDate = item.check_in_time ? item.check_in_time.substring(0, 10) : item.created_at?.substring(0, 10)
-        return itemDate === selectedDate
-      })
+      // 3. Verificar si hay estancia activa DEL DÍA DE HOY
+      const today = new Date().toISOString().slice(0, 10)
+      const activeStayRaw = localStorage.getItem('intendencia_active_stay')
+      let activeStay = null
+      if (activeStayRaw) {
+        try {
+          const parsed = JSON.parse(activeStayRaw)
+          // Solo cuenta como activa si es del día de hoy
+          if (parsed.date === today) activeStay = parsed
+        } catch { /* ignorar */ }
+      }
 
-      // Generar elementos de la línea de tiempo (Soporta de 5 a 7 check-ins por día)
-      const generatedTimeline = []
+      // 4. Filtrar por fecha seleccionada y DEDUPLICAR por id (evita duplicados DB + localStorage)
+      const seenIds = new Set()
+      const combinedCheckIns = [...(dbCheckIns || []), ...localCheckIns]
+        .filter(item => {
+          const itemDate = item.check_in_time
+            ? item.check_in_time.substring(0, 10)
+            : item.created_at?.substring(0, 10)
+          return itemDate === selectedDate
+        })
+        .filter(item => {
+          const key = item.id || item.check_in_time
+          if (seenIds.has(key)) return false
+          seenIds.add(key)
+          return true
+        })
+        .sort((a, b) => {
+          const ta = new Date(a.check_in_time || a.created_at).getTime()
+          const tb = new Date(b.check_in_time || b.created_at).getTime()
+          return ta - tb
+        })
+
+      // 5. Calcular tiempo real acumulado
       let totalMinutesAccumulated = 0
+      const now = new Date()
+      const generatedTimeline = []
 
       if (combinedCheckIns.length > 0) {
         combinedCheckIns.forEach((ci, idx) => {
-          const timeFormatted = new Date(ci.check_in_time || ci.created_at || Date.now()).toLocaleTimeString('es-ES', {
+          const ciTime = new Date(ci.check_in_time || ci.created_at || Date.now())
+          const timeFormatted = ciTime.toLocaleTimeString('es-ES', {
             hour: '2-digit',
             minute: '2-digit'
           })
 
-          // Buscar notas guardadas localmente para esta estancia
+          // Tiempo real: desde este check-in hasta el siguiente, o hasta ahora si es el último y hay estancia activa
+          const isLastCheckIn = idx === combinedCheckIns.length - 1
+          let segmentEndTime = now
+
+          if (!isLastCheckIn) {
+            // El segmento termina cuando comienza el siguiente check-in
+            segmentEndTime = new Date(combinedCheckIns[idx + 1].check_in_time || combinedCheckIns[idx + 1].created_at)
+          } else if (!activeStay) {
+            // Último check-in y NO hay estancia activa hoy → jornada finalizada.
+            // Solo contamos hasta el momento guardado (ci_time + duracion estimada al cierre)
+            // En este caso el tiempo ya se acumuló en los segmentos anteriores.
+            // Usamos el momento de la consulta como tope razonable solo si la fecha es hoy;
+            // si es un día anterior, el tiempo máximo es hasta medianoche de ese día.
+            if (selectedDate !== today) {
+              const endOfDay = new Date(`${selectedDate}T23:59:59`)
+              segmentEndTime = endOfDay
+            }
+          }
+
+          const segmentMinutes = Math.max(0, Math.round((segmentEndTime - ciTime) / 60000))
+          totalMinutesAccumulated += segmentMinutes
+
+          // Evidencias locales (sin duplicar)
           const savedNotes = localStorage.getItem(`estancia_notes_${ci.terminal_name}`)
           const savedEvidencesRaw = localStorage.getItem(`estancia_evidences_${ci.terminal_name}`)
           let localEvidences = []
           if (savedEvidencesRaw) {
-            try {
-              localEvidences = JSON.parse(savedEvidencesRaw)
-            } catch {
-              localEvidences = []
-            }
+            try { localEvidences = JSON.parse(savedEvidencesRaw) } catch { /* ignorar */ }
           }
 
           generatedTimeline.unshift({
@@ -83,32 +129,39 @@ export default function EstatusJornada() {
             terminal: ci.terminal_name,
             type: idx === 0 ? 'CHECK_IN_INICIAL' : 'CAMBIO_TERMINAL',
             statusTag: idx === 0 ? 'Entrada Registrada' : 'En Estancia',
-            notes: savedNotes || 'Supervisión en turno, inspección de área e insumos de sanitarios.',
+            notes: savedNotes || null,
             photo: ci.photo_url || (localEvidences[0] ? localEvidences[0].photo_url : null),
             evidences: localEvidences
           })
-
-          // Simular tiempo acumulado de estancia por cada check-in (e.g. 45 min a 120 min por visita)
-          totalMinutesAccumulated += 65
         })
 
-        // Estatus de la terminal activa (La más reciente del día)
+        // 6. Estatus: ACTIVO solo si hay estancia activa del día de hoy Y estamos consultando hoy
         const latestCheckIn = combinedCheckIns[combinedCheckIns.length - 1]
-        setCurrentTerminalActive(`EN ESTANCIA (${latestCheckIn.terminal_name})`)
+        if (activeStay && selectedDate === today) {
+          setCurrentTerminalActive(`EN ESTANCIA (${latestCheckIn.terminal_name})`)
+          setIsJornadaActive(true)
+        } else {
+          // Jornada finalizada o consultando día pasado
+          setCurrentTerminalActive(`JORNADA FINALIZADA (${latestCheckIn.terminal_name})`)
+          setIsJornadaActive(false)
+        }
+
+      } else if (activeStay && selectedDate === today) {
+        // Sin check-ins en DB pero hay estancia activa local del día de hoy
+        const ciTime = new Date(`${today}T${activeStay.time}`)
+        const segmentMinutes = Math.max(0, Math.round((now - ciTime) / 60000))
+        totalMinutesAccumulated += segmentMinutes
+
+        setCurrentTerminalActive(`EN ESTANCIA (${activeStay.terminal})`)
         setIsJornadaActive(true)
-      } else if (activeStay) {
-        const parsed = JSON.parse(activeStay)
-        setCurrentTerminalActive(`EN ESTANCIA (${parsed.terminal})`)
-        setIsJornadaActive(true)
-        totalMinutesAccumulated = 165
 
         generatedTimeline.push({
-          id: `active-1`,
-          time: parsed.time,
-          terminal: parsed.terminal,
+          id: 'active-1',
+          time: activeStay.time,
+          terminal: activeStay.terminal,
           type: 'ESTANCIA_ACTIVA',
           statusTag: 'En Progreso',
-          notes: localStorage.getItem(`estancia_notes_${parsed.terminal}`) || 'Estancia activa en supervisión.',
+          notes: localStorage.getItem(`estancia_notes_${activeStay.terminal}`) || null,
           photo: null
         })
       } else {
@@ -116,15 +169,16 @@ export default function EstatusJornada() {
         setIsJornadaActive(false)
       }
 
-      // Formatear reloj de Horas Trabajadas (HH:MM)
-      const hours = Math.floor(totalMinutesAccumulated / 60)
-      const mins = totalMinutesAccumulated % 60
+      // 7. Formatear reloj de Horas Trabajadas (HH:MM) — máximo razonable 12h
+      const clampedMinutes = Math.min(totalMinutesAccumulated, 720)
+      const hours = Math.floor(clampedMinutes / 60)
+      const mins = clampedMinutes % 60
       setHorasTrabajadas(`${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`)
 
       setTimelineItems(generatedTimeline.length > 0 ? generatedTimeline : [
         {
           id: 'demo-1',
-          time: '10:45 AM',
+          time: '10:45',
           terminal: 'Terminal Haciendita',
           type: 'LIMPIEZA',
           statusTag: 'En Progreso',
@@ -133,7 +187,7 @@ export default function EstatusJornada() {
         },
         {
           id: 'demo-2',
-          time: '08:00 AM',
+          time: '08:00',
           terminal: 'Terminal Pipila',
           type: 'CHECK_IN',
           statusTag: 'Entrada Registrada',

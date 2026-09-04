@@ -20,150 +20,149 @@ export default function HistoricoRecorrido() {
     return formatted.charAt(0).toUpperCase() + formatted.slice(1)
   }
 
-  // Cargar datos del recorrido histórico desde Supabase DB + Local Storage
+  // Cargar datos del recorrido histórico SOLO desde Supabase DB + LocalStorage (sin datos demo)
   const loadHistoricalDayData = useCallback(async (targetDate) => {
     setLoading(true)
     setDateFormattedText(formatSpanishDate(targetDate))
+    setEventsList([])
+    setTiempoTotalHrsStr('00:00')
+    setIsIncompleteDay(false)
     try {
-      // 1. Consultar check-ins de la fecha elegida
+      // 1. Consultar check-ins desde Supabase
       const { data: dbCheckIns } = await supabase
         .from('check_ins')
         .select('*')
         .order('check_in_time', { ascending: true })
 
-      // Backup de Local Storage
+      // 2. Respaldo de LocalStorage — deduplicar por id
       const localCheckIns = JSON.parse(localStorage.getItem('intendencia_check_ins') || '[]')
-      const filteredCheckIns = [...(dbCheckIns || []), ...localCheckIns].filter(item => {
-        const itemDate = item.check_in_time ? item.check_in_time.substring(0, 10) : item.created_at?.substring(0, 10)
-        return itemDate === targetDate
-      })
+      const seenIds = new Set()
+      const filteredCheckIns = [...(dbCheckIns || []), ...localCheckIns]
+        .filter(item => {
+          const itemDate = item.check_in_time
+            ? item.check_in_time.substring(0, 10)
+            : item.created_at?.substring(0, 10)
+          return itemDate === targetDate
+        })
+        .filter(item => {
+          const key = item.id || item.check_in_time
+          if (seenIds.has(key)) return false
+          seenIds.add(key)
+          return true
+        })
+        .sort((a, b) => {
+          const ta = new Date(a.check_in_time || a.created_at).getTime()
+          const tb = new Date(b.check_in_time || b.created_at).getTime()
+          return ta - tb
+        })
+
+      // Sin registros → dejar lista vacía, la UI mostrará estado vacío
+      if (filteredCheckIns.length === 0) return
 
       const generatedEvents = []
       let totalMinutesDay = 0
+      const now = new Date()
+      const today = new Date().toISOString().slice(0, 10)
 
-      if (filteredCheckIns.length > 0) {
-        // Evento 1: Entrada inicial
-        const firstCheckIn = filteredCheckIns[0]
-        const firstTimeStr = new Date(firstCheckIn.check_in_time || firstCheckIn.created_at || Date.now()).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
-
-        generatedEvents.push({
-          id: `node-start`,
-          type: 'CHECK_IN_INICIAL',
-          title: 'ENTRADA',
-          terminal: firstCheckIn.terminal_name,
-          time: firstTimeStr
-        })
-
-        // Bloques de estancias por terminal
-        filteredCheckIns.forEach((ci, idx) => {
-          const entryTime = new Date(ci.check_in_time || ci.created_at || Date.now())
-          const entryTimeFormatted = entryTime.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
-          
-          // Estimar hora de salida (e.g. 2 horas después o la hora de la siguiente terminal)
-          const exitTimeObj = new Date(entryTime.getTime() + 2 * 60 * 60 * 1000)
-          const exitTimeFormatted = exitTimeObj.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
-          
-          const stayMinutes = 120
-          totalMinutesDay += stayMinutes
-
-          const savedNotes = localStorage.getItem(`estancia_notes_${ci.terminal_name}`)
-          const savedEvidencesRaw = localStorage.getItem(`estancia_evidences_${ci.terminal_name}`)
-          let localEvidences = []
-          if (savedEvidencesRaw) {
-            try {
-              localEvidences = JSON.parse(savedEvidencesRaw)
-            } catch {
-              localEvidences = []
-            }
-          }
-
-          generatedEvents.push({
-            id: `stay-${idx}`,
-            type: 'ESTANCIA',
-            terminal: ci.terminal_name,
-            timeRange: `${entryTimeFormatted} - ${exitTimeFormatted}`,
-            duration: '02h 00m',
-            notes: savedNotes || 'Supervisión de área, reposición de insumos de sanitarios y reporte de mantenimiento en terminal.',
-            photos: localEvidences.length > 0 ? localEvidences : (ci.photo_url ? [{ label: 'ENTRADA', photo_url: ci.photo_url }] : [])
-          })
-
-          // Insertar segmento de traslado entre terminales si no es la última
-          if (idx < filteredCheckIns.length - 1) {
-            generatedEvents.push({
-              id: `traslado-${idx}`,
-              type: 'TRASLADO',
-              text: 'Traslado entre terminales (30 a 45 min) — Tiempo no contabilizado en estancia productiva.'
-            })
-          }
-        })
-
-        // Evento Final: Salida Total
-        const lastCheckIn = filteredCheckIns[filteredCheckIns.length - 1]
-        const lastExitTimeStr = new Date(new Date(lastCheckIn.check_in_time || Date.now()).getTime() + 2 * 60 * 60 * 1000).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
-
-        generatedEvents.push({
-          id: `node-end`,
-          type: 'SALIDA_FINAL',
-          title: 'SALIDA',
-          terminal: lastCheckIn.terminal_name,
-          time: lastExitTimeStr
-        })
-
-      } else {
-        // Datos demostrativos de respaldo para la fecha seleccionada
-        totalMinutesDay = 450 // 07:30 HRS (Incompleto < 8h)
-        generatedEvents.push(
-          {
-            id: 'ev-1',
-            type: 'CHECK_IN_INICIAL',
-            title: 'ENTRADA',
-            terminal: 'Terminal Pipila',
-            time: '08:00 AM'
-          },
-          {
-            id: 'ev-2',
-            type: 'ESTANCIA',
-            terminal: 'Terminal Pipila',
-            timeRange: '08:00 AM - 11:00 AM',
-            duration: '03h 00m',
-            notes: 'Supervisión de piso, reposición de insumos de sanitarios y reporte de fuga en lavabo.',
-            photos: [
-              { label: 'ENTRADA', photo_url: 'https://images.unsplash.com/photo-1581578731548-c64695cc6952?w=400&auto=format&fit=crop&q=80' },
-              { label: 'SALIDA', photo_url: 'https://images.unsplash.com/photo-1584622650111-993a426fbf0a?w=400&auto=format&fit=crop&q=80' }
-            ]
-          },
-          {
-            id: 'ev-traslado-1',
-            type: 'TRASLADO',
-            text: 'Traslado entre terminales (45 min) — Tiempo no contabilizado en estancia productiva.'
-          },
-          {
-            id: 'ev-3',
-            type: 'ESTANCIA',
-            terminal: 'Terminal Las Torres',
-            timeRange: '11:45 AM - 04:00 PM',
-            duration: '04h 15m',
-            notes: 'Revisión de terminal Las Torres. Inspección de áreas generales y verificación de insumos.',
-            photos: [
-              { label: 'ENTRADA', photo_url: 'https://images.unsplash.com/photo-1581578731548-c64695cc6952?w=400&auto=format&fit=crop&q=80' }
-            ]
-          },
-          {
-            id: 'ev-4',
-            type: 'SALIDA_FINAL',
-            title: 'SALIDA',
-            terminal: 'Terminal Las Torres',
-            time: '04:30 PM'
-          }
-        )
+      // Verificar si hay estancia activa del día de hoy
+      let activeStay = null
+      const activeStayRaw = localStorage.getItem('intendencia_active_stay')
+      if (activeStayRaw) {
+        try {
+          const parsed = JSON.parse(activeStayRaw)
+          if (parsed.date === today) activeStay = parsed
+        } catch { /* ignorar */ }
       }
 
-      // Calcular tiempo total y bandera de jornada incompleta (< 7:59 HRS / 479 min)
-      const hours = Math.floor(totalMinutesDay / 60)
-      const mins = totalMinutesDay % 60
-      setTiempoTotalHrsStr(`${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`)
-      setIsIncompleteDay(totalMinutesDay < 479)
+      // Evento inicial: ENTRADA
+      const firstCI = filteredCheckIns[0]
+      const firstTime = new Date(firstCI.check_in_time || firstCI.created_at)
+      generatedEvents.push({
+        id: 'node-start',
+        type: 'CHECK_IN_INICIAL',
+        title: 'ENTRADA',
+        terminal: firstCI.terminal_name,
+        time: firstTime.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
+      })
 
+      // Bloques de estancia por cada check-in
+      filteredCheckIns.forEach((ci, idx) => {
+        const entryTime = new Date(ci.check_in_time || ci.created_at)
+        const isLast = idx === filteredCheckIns.length - 1
+
+        // Hora de salida real: inicio del siguiente o ahora si está activo
+        let exitTime
+        if (!isLast) {
+          exitTime = new Date(filteredCheckIns[idx + 1].check_in_time || filteredCheckIns[idx + 1].created_at)
+        } else if (activeStay && targetDate === today) {
+          exitTime = now
+        } else {
+          exitTime = null
+        }
+
+        const stayMinutes = exitTime ? Math.max(0, Math.round((exitTime - entryTime) / 60000)) : 0
+        totalMinutesDay += stayMinutes
+
+        const durHrs = Math.floor(stayMinutes / 60)
+        const durMins = stayMinutes % 60
+        const durationStr = exitTime
+          ? `${String(durHrs).padStart(2, '0')}h ${String(durMins).padStart(2, '0')}m`
+          : '(sin cierre)'
+
+        const exitTimeStr = exitTime
+          ? exitTime.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
+          : 'En curso'
+
+        // Notas y evidencias desde localStorage (solo si existen, sin inventar)
+        const savedNotes = localStorage.getItem(`estancia_notes_${ci.terminal_name}`) || null
+        const savedEvidencesRaw = localStorage.getItem(`estancia_evidences_${ci.terminal_name}`)
+        let localEvidences = []
+        if (savedEvidencesRaw) {
+          try { localEvidences = JSON.parse(savedEvidencesRaw) } catch { /* ignorar */ }
+        }
+
+        const photos = localEvidences.length > 0
+          ? localEvidences
+          : (ci.photo_url ? [{ label: 'Entrada', photo_url: ci.photo_url }] : [])
+
+        generatedEvents.push({
+          id: `stay-${idx}`,
+          type: 'ESTANCIA',
+          terminal: ci.terminal_name,
+          timeRange: `${entryTime.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })} - ${exitTimeStr}`,
+          duration: durationStr,
+          notes: savedNotes,
+          photos
+        })
+
+        // Traslado entre terminales
+        if (!isLast) {
+          generatedEvents.push({
+            id: `traslado-${idx}`,
+            type: 'TRASLADO',
+            text: 'Traslado entre terminales — Tiempo no contabilizado en estancia productiva.'
+          })
+        }
+      })
+
+      // Evento final: SALIDA (solo si la jornada terminó)
+      const lastCI = filteredCheckIns[filteredCheckIns.length - 1]
+      if (!activeStay || targetDate !== today) {
+        generatedEvents.push({
+          id: 'node-end',
+          type: 'SALIDA_FINAL',
+          title: 'SALIDA',
+          terminal: lastCI.terminal_name,
+          time: '—'
+        })
+      }
+
+      // Tiempo total (máx 12h) y bandera de jornada incompleta (< 7h59m)
+      const clampedMinutes = Math.min(totalMinutesDay, 720)
+      const hours = Math.floor(clampedMinutes / 60)
+      const mins = clampedMinutes % 60
+      setTiempoTotalHrsStr(`${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`)
+      setIsIncompleteDay(clampedMinutes < 479)
       setEventsList(generatedEvents)
 
     } catch (err) {
@@ -214,7 +213,15 @@ export default function HistoricoRecorrido() {
       <div className="timeline-historical-container">
         {loading && <p style={{ textAlign: 'center', padding: '1rem', color: '#64748b' }}>Cargando recorrido histórico de la fecha...</p>}
 
-        {!loading && eventsList.map((evt) => {
+        {!loading && eventsList.length === 0 && (
+          <div style={{ textAlign: 'center', padding: '2.5rem 1rem', color: '#94a3b8' }}>
+            <div style={{ fontSize: '2.5rem', marginBottom: '0.75rem' }}>📋</div>
+            <p style={{ fontWeight: 700, fontSize: '1rem', color: '#64748b', margin: '0 0 0.25rem' }}>Sin registros</p>
+            <p style={{ fontSize: '0.82rem', margin: 0 }}>No hay actividad registrada para la fecha seleccionada.</p>
+          </div>
+        )}
+
+        {!loading && eventsList.length > 0 && eventsList.map((evt) => {
           if (evt.type === 'CHECK_IN_INICIAL' || evt.type === 'SALIDA_FINAL') {
             return (
               <div key={evt.id} className="historical-node-card checkin-node">
@@ -244,7 +251,7 @@ export default function HistoricoRecorrido() {
                 <span className="duration-pill">⏱️ {evt.duration}</span>
               </div>
               <p className="stay-time-range">{evt.timeRange}</p>
-              
+
               {evt.notes && <p className="stay-notes">💬 {evt.notes}</p>}
 
               {evt.photos && evt.photos.length > 0 && (
@@ -283,7 +290,7 @@ export default function HistoricoRecorrido() {
               </button>
             </div>
             <p style={{ fontSize: '0.75rem', color: '#64748b', marginBottom: '0.75rem' }}>Etiqueta: {selectedPhotoModal.label}</p>
-            
+
             <div style={{ borderRadius: '8px', overflow: 'hidden', maxHeight: '70vh' }}>
               <img src={selectedPhotoModal.url} alt="Evidencia en HD" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
             </div>
