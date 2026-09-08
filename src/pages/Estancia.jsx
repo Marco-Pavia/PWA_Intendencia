@@ -13,41 +13,35 @@ export default function Estancia({ currentTerminal = 'Terminal Pipila', entryTim
 
   const fileInputRef = useRef(null)
 
-  // Sincronizar evidencias y notas con LocalStorage y Supabase DB en tiempo real
+  // Sincronizar evidencias y notas exclusivamente con Supabase DB en tiempo real
   useEffect(() => {
-    // 1. Carga inicial desde LocalStorage para respuesta inmediata
-    const savedEvidences = localStorage.getItem(`estancia_evidences_${currentTerminal}`)
-    if (savedEvidences) {
-      try {
-        setEvidences(JSON.parse(savedEvidences))
-      } catch (e) {
-        console.warn('Error al cargar evidencias guardadas:', e)
-      }
-    }
-
-    const savedNotes = localStorage.getItem(`estancia_notes_${currentTerminal}`)
-    if (savedNotes) {
-      setNotes(savedNotes.substring(0, MAX_NOTES_LENGTH))
-    }
-
-    // 2. Consulta en la nube (Supabase DB) para restaurar notas y fotos sincronizadas entre dispositivos
     const fetchCloudEstanciaData = async () => {
       try {
-        // Cargar notas desde tabla check_ins
-        const { data: dbCheckIns } = await supabase
-          .from('check_ins')
+        // 1. Cargar notas desde la estancia activa o check-in en DB
+        const { data: dbEstancia } = await supabase
+          .from('estancias')
           .select('id, notes')
           .eq('terminal_name', currentTerminal)
-          .order('check_in_time', { ascending: false })
+          .order('created_at', { ascending: false })
           .limit(1)
 
-        if (dbCheckIns && dbCheckIns.length > 0 && dbCheckIns[0].notes) {
-          const cloudNotes = dbCheckIns[0].notes.substring(0, MAX_NOTES_LENGTH)
-          setNotes(cloudNotes)
-          localStorage.setItem(`estancia_notes_${currentTerminal}`, cloudNotes)
+        if (dbEstancia && dbEstancia.length > 0 && dbEstancia[0].notes) {
+          setNotes(dbEstancia[0].notes.substring(0, MAX_NOTES_LENGTH))
+        } else {
+          // Fallback a check_ins
+          const { data: dbCheckIns } = await supabase
+            .from('check_ins')
+            .select('id, notes')
+            .eq('terminal_name', currentTerminal)
+            .order('check_in_time', { ascending: false })
+            .limit(1)
+
+          if (dbCheckIns && dbCheckIns.length > 0 && dbCheckIns[0].notes) {
+            setNotes(dbCheckIns[0].notes.substring(0, MAX_NOTES_LENGTH))
+          }
         }
 
-        // Cargar evidencias fotográficas de la terminal en DB
+        // 2. Cargar evidencias fotográficas de la terminal en DB
         const { data: dbEvidencias } = await supabase
           .from('evidencias_fotograficas')
           .select('*')
@@ -63,20 +57,7 @@ export default function Estancia({ currentTerminal = 'Terminal Pipila', entryTim
               photo_url: ev.photo_url
             }))
 
-          if (terminalEvs.length > 0) {
-            setEvidences(prev => {
-              const seen = new Set(prev.map(p => p.photo_url))
-              const merged = [...prev]
-              terminalEvs.forEach(item => {
-                if (!seen.has(item.photo_url)) {
-                  seen.add(item.photo_url)
-                  merged.push(item)
-                }
-              })
-              localStorage.setItem(`estancia_evidences_${currentTerminal}`, JSON.stringify(merged))
-              return merged
-            })
-          }
+          setEvidences(terminalEvs)
         }
       } catch (err) {
         console.warn('Error al obtener datos de estancia desde Supabase:', err)
@@ -86,9 +67,17 @@ export default function Estancia({ currentTerminal = 'Terminal Pipila', entryTim
     fetchCloudEstanciaData()
   }, [currentTerminal])
 
-  // Función de ayuda para respaldar notas en Supabase DB
+  // Función de ayuda para respaldar notas en Supabase DB (estancias y check_ins)
   const saveNotesToSupabase = async (notesText) => {
     try {
+      // Actualizar en estancias de la terminal activa
+      await supabase
+        .from('estancias')
+        .update({ notes: notesText, updated_at: new Date().toISOString() })
+        .eq('terminal_name', currentTerminal)
+        .eq('status', 'ACTIVA')
+
+      // Actualizar en check_ins
       const { data: latestCI } = await supabase
         .from('check_ins')
         .select('id')
@@ -107,7 +96,7 @@ export default function Estancia({ currentTerminal = 'Terminal Pipila', entryTim
     }
   }
 
-  // Convertir Blob WebP a Base64 permanente como respaldo
+  // Convertir Blob WebP a Base64 como fallback
   const fileToBase64 = (file) => {
     return new Promise((resolve, reject) => {
       const reader = new FileReader()
@@ -128,11 +117,11 @@ export default function Estancia({ currentTerminal = 'Terminal Pipila', entryTim
       // 1. Convertir y comprimir foto a .WebP
       const webpFile = await convertAndCompressToWebP(file)
 
-      // 2. Generar Base64 Data URL persistente (respaldo local)
+      // 2. Generar Base64 Data URL por si falla storage
       const base64Url = await fileToBase64(webpFile)
       let finalPhotoUrl = base64Url
 
-      // 3. Intentar subir a Supabase Storage para tener respaldo en la nube
+      // 3. Subir a Supabase Storage
       try {
         const fileName = `estancia_${Date.now()}_${Math.random().toString(36).substring(7)}.webp`
         const { data: storageData } = await supabase.storage
@@ -151,8 +140,16 @@ export default function Estancia({ currentTerminal = 'Terminal Pipila', entryTim
           }
         }
       } catch (cloudErr) {
-        console.warn('Subida a nube omitida, conservando Base64 local:', cloudErr)
+        console.warn('Subida a storage omitida, usando Base64:', cloudErr)
       }
+
+      // Obtener estancia activa para asociar ID
+      const { data: activeEst } = await supabase
+        .from('estancias')
+        .select('id, jornada_id')
+        .eq('terminal_name', currentTerminal)
+        .order('created_at', { ascending: false })
+        .limit(1)
 
       const timeLabel = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
       const newEvidence = {
@@ -163,25 +160,21 @@ export default function Estancia({ currentTerminal = 'Terminal Pipila', entryTim
         fileSize: (webpFile.size / 1024).toFixed(1)
       }
 
-      const updated = [...evidences, newEvidence]
-      setEvidences(updated)
-      localStorage.setItem(`estancia_evidences_${currentTerminal}`, JSON.stringify(updated))
+      // Guardar directamente en tabla 'evidencias_fotograficas' de Supabase DB
+      await supabase.from('evidencias_fotograficas').insert([{
+        estancia_id: activeEst?.[0]?.id || null,
+        jornada_id: activeEst?.[0]?.jornada_id || null,
+        photo_url: finalPhotoUrl,
+        category: 'SUPERVISION',
+        label: newEvidence.label
+      }])
 
-      // Guardar también en tabla 'evidencias_fotograficas' de Supabase DB
-      try {
-        await supabase.from('evidencias_fotograficas').insert([{
-          photo_url: finalPhotoUrl,
-          category: 'SUPERVISION',
-          label: newEvidence.label
-        }])
-      } catch (dbEvErr) {
-        console.warn('Respaldo en DB evidencias omitido:', dbEvErr)
-      }
+      setEvidences(prev => [...prev, newEvidence])
 
-      // Sincronizar también las notas actuales
+      // Sincronizar también las notas actuales en DB
       await saveNotesToSupabase(notes)
 
-      setSaveSuccessMsg('¡Foto WebP optimizada y sincronizada en la nube!')
+      setSaveSuccessMsg('¡Foto WebP subida y sincronizada en tiempo real!')
     } catch (err) {
       console.error('Error al subir evidencia:', err)
     } finally {
@@ -189,15 +182,12 @@ export default function Estancia({ currentTerminal = 'Terminal Pipila', entryTim
     }
   }
 
-  // Guardado Parcial Explícito en Nube y Local
+  // Guardado Parcial Explícito en DB
   const handleSaveProgress = async () => {
     const trimmedNotes = notes.substring(0, MAX_NOTES_LENGTH)
-    localStorage.setItem(`estancia_evidences_${currentTerminal}`, JSON.stringify(evidences))
-    localStorage.setItem(`estancia_notes_${currentTerminal}`, trimmedNotes)
-
     await saveNotesToSupabase(trimmedNotes)
 
-    setSaveSuccessMsg('¡Avance guardado con éxito! Fotos y notas sincronizadas en la nube para todos los dispositivos.')
+    setSaveSuccessMsg('¡Avance guardado con éxito! Guardado en la base de datos de Supabase para todos los equipos.')
     setTimeout(() => {
       setSaveSuccessMsg('')
     }, 4000)

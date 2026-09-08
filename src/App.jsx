@@ -21,50 +21,45 @@ function AppContent() {
   const [currentTerminal, setCurrentTerminal] = useState('Terminal Pipila')
   const [entryTimeStr, setEntryTimeStr] = useState('09:15 AM')
 
-  // Helper: limpiar datos de estancia del día anterior
-  const clearPreviousDayEstancia = (parsed) => {
-    // Limpiar estancia activa
-    localStorage.removeItem('intendencia_active_stay')
-    // Limpiar fotos y notas de la terminal guardada (y cualquier otra por si acaso)
-    if (parsed?.terminal) {
-      localStorage.removeItem(`estancia_evidences_${parsed.terminal}`)
-      localStorage.removeItem(`estancia_notes_${parsed.terminal}`)
-    }
-    // Limpiar evidencias/notas de todas las terminales conocidas
-    Object.keys(localStorage)
-      .filter(k => k.startsWith('estancia_evidences_') || k.startsWith('estancia_notes_'))
-      .forEach(k => localStorage.removeItem(k))
-  }
-
-  // Establecer pantalla inicial según el rol al cargar usuario
+  // Establecer pantalla inicial según el rol y verificar estado en Supabase DB
   useEffect(() => {
     if (role === ROLES.JEFE) {
       setActiveScreen(4) // Vista Principal del Jefe
     } else {
-      // Si la supervisora tiene una estancia activa guardada, verificar que sea del día de hoy
-      const activeStay = localStorage.getItem('intendencia_active_stay')
-      if (activeStay) {
+      const checkActiveJornadaDB = async () => {
         try {
-          const parsed = JSON.parse(activeStay)
-          const today = new Date().toISOString().slice(0, 10) // 'YYYY-MM-DD'
-          if (parsed.date === today) {
-            // Estancia válida del día de hoy → ir a Pantalla 2
-            setCurrentTerminal(parsed.terminal)
-            setEntryTimeStr(parsed.time)
-            setActiveScreen(2)
-          } else {
-            // Estancia de un día anterior → limpiar y empezar de nuevo
-            clearPreviousDayEstancia(parsed)
-            setActiveScreen(1)
+          const today = new Date().toISOString().slice(0, 10)
+          const { data: activeJornada } = await supabase
+            .from('jornadas')
+            .select('id, status')
+            .eq('date', today)
+            .eq('status', 'EN_PROGRESO')
+            .limit(1)
+
+          if (activeJornada && activeJornada.length > 0) {
+            const { data: activeEstancia } = await supabase
+              .from('estancias')
+              .select('terminal_name, entry_time')
+              .eq('jornada_id', activeJornada[0].id)
+              .eq('status', 'ACTIVA')
+              .order('created_at', { ascending: false })
+              .limit(1)
+
+            if (activeEstancia && activeEstancia.length > 0) {
+              setCurrentTerminal(activeEstancia[0].terminal_name)
+              const timeFormatted = new Date(activeEstancia[0].entry_time).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
+              setEntryTimeStr(timeFormatted)
+              setActiveScreen(2)
+              return
+            }
           }
+          setActiveScreen(1)
         } catch (e) {
-          // JSON inválido → limpiar y empezar de nuevo
-          localStorage.removeItem('intendencia_active_stay')
+          console.warn('Error al verificar jornada en DB:', e)
           setActiveScreen(1)
         }
-      } else {
-        setActiveScreen(1) // Vista Principal de la Supervisora
       }
+      checkActiveJornadaDB()
     }
   }, [role])
 
@@ -84,68 +79,103 @@ function AppContent() {
   // 1. Al completar Entrada (Check-In) en Pantalla 1 -> Pasa a Pantalla 2 (Estancia)
   const handleCheckInComplete = (selectedTerminalName) => {
     const timeNow = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
-    const today = new Date().toISOString().slice(0, 10) // 'YYYY-MM-DD'
     setCurrentTerminal(selectedTerminalName)
     setEntryTimeStr(timeNow)
-    localStorage.setItem('intendencia_active_stay', JSON.stringify({ terminal: selectedTerminalName, time: timeNow, date: today }))
     setActiveScreen(2)
   }
 
-  // 2. Al cambiar de terminal en Pantalla 3 -> Guarda el nuevo registro de Check-In y pasa a Pantalla 2
+  // 2. Al cambiar de terminal en Pantalla 3 -> Cierra estancia previa, guarda Check-In y crea nueva estancia activa en DB
   const handleCambiarTerminal = async (newTerminalName) => {
     const timeNow = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
-    const today = new Date().toISOString().slice(0, 10) // 'YYYY-MM-DD'
-
-    const record = {
-      user_id: user?.id || null,
-      user_name: user?.user_metadata?.full_name || 'Supervisora Intendencia',
-      role: 'supervisora',
-      terminal_name: newTerminalName,
-      check_in_time: new Date().toISOString(),
-      latitude: 0,
-      longitude: 0,
-      photo_url: null
-    }
+    const today = new Date().toISOString().slice(0, 10)
 
     try {
-      const { data: dbData } = await supabase
+      // Finalizar estancia previa en DB
+      await supabase
+        .from('estancias')
+        .update({
+          exit_time: new Date().toISOString(),
+          status: 'FINALIZADA',
+          updated_at: new Date().toISOString()
+        })
+        .eq('status', 'ACTIVA')
+
+      // Registrar nuevo Check-In
+      const record = {
+        user_id: user?.id || null,
+        user_name: user?.user_metadata?.full_name || 'Supervisora Intendencia',
+        role: 'supervisora',
+        terminal_name: newTerminalName,
+        check_in_time: new Date().toISOString(),
+        latitude: 0,
+        longitude: 0,
+        photo_url: null
+      }
+
+      await supabase
         .from('check_ins')
         .insert([record])
-        .select()
 
-      const existingCheckIns = JSON.parse(localStorage.getItem('intendencia_check_ins') || '[]')
-      existingCheckIns.push({ ...record, id: dbData?.[0]?.id || `local-${Date.now()}` })
-      localStorage.setItem('intendencia_check_ins', JSON.stringify(existingCheckIns))
+      // Obtener ID de Jornada activa
+      const { data: activeJornada } = await supabase
+        .from('jornadas')
+        .select('id')
+        .eq('date', today)
+        .eq('status', 'EN_PROGRESO')
+        .limit(1)
+
+      const jornadaId = activeJornada?.[0]?.id || null
+
+      // Crear nueva estancia activa
+      await supabase
+        .from('estancias')
+        .insert([{
+          jornada_id: jornadaId,
+          terminal_name: newTerminalName,
+          entry_time: new Date().toISOString(),
+          status: 'ACTIVA'
+        }])
     } catch (err) {
-      console.warn('Error al registrar cambio de terminal:', err)
-      const existingCheckIns = JSON.parse(localStorage.getItem('intendencia_check_ins') || '[]')
-      existingCheckIns.push({ ...record, id: `local-${Date.now()}` })
-      localStorage.setItem('intendencia_check_ins', JSON.stringify(existingCheckIns))
+      console.warn('Error al registrar cambio de terminal en DB:', err)
     }
 
     setCurrentTerminal(newTerminalName)
     setEntryTimeStr(timeNow)
-    localStorage.setItem('intendencia_active_stay', JSON.stringify({ terminal: newTerminalName, time: timeNow, date: today }))
     setActiveScreen(2)
   }
 
-  // 3. Al finalizar jornada (Salida Total) en Pantalla 3 -> Guarda registro de cierre con timestamp exacto
-  const handleFinalizarJornada = () => {
-    const timeNow = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
+  // 3. Al finalizar jornada (Salida Total) -> Cierra la estancia y la jornada en Supabase DB
+  const handleFinalizarJornada = async () => {
     const today = new Date().toISOString().slice(0, 10)
-    const closureRecord = {
-      date: today,
-      time: timeNow,
-      timestamp: new Date().toISOString(),
-      terminal: currentTerminal
+
+    try {
+      // 1. Cerrar estancia activa
+      await supabase
+        .from('estancias')
+        .update({
+          exit_time: new Date().toISOString(),
+          status: 'FINALIZADA',
+          updated_at: new Date().toISOString()
+        })
+        .eq('status', 'ACTIVA')
+
+      // 2. Cerrar jornada laboral en DB
+      await supabase
+        .from('jornadas')
+        .update({
+          end_time: new Date().toISOString(),
+          status: 'FINALIZADA',
+          updated_at: new Date().toISOString()
+        })
+        .eq('date', today)
+        .eq('status', 'EN_PROGRESO')
+    } catch (err) {
+      console.warn('Error al cerrar jornada en DB:', err)
     }
 
-    const cierres = JSON.parse(localStorage.getItem('intendencia_cierres_jornada') || '[]')
-    cierres.push(closureRecord)
-    localStorage.setItem('intendencia_cierres_jornada', JSON.stringify(cierres))
-    localStorage.setItem(`intendencia_cierre_${today}`, JSON.stringify(closureRecord))
+    // Limpiar cualquier residuo de localStorage para evitar conflictos de cache
+    try { localStorage.clear() } catch { /* ignorar */ }
 
-    localStorage.removeItem('intendencia_active_stay')
     setActiveScreen(1)
   }
 

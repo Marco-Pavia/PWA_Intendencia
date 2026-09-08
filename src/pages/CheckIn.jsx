@@ -218,6 +218,7 @@ export default function CheckIn({ onCheckInSuccess }) {
         photoUrl = publicUrlData?.publicUrl || photoPreview
       }
 
+      // 1. Inserción en tabla 'check_ins'
       const record = {
         user_id: user?.id || null,
         user_name: user?.user_metadata?.full_name || 'Supervisora Intendencia',
@@ -229,18 +230,62 @@ export default function CheckIn({ onCheckInSuccess }) {
         photo_url: photoUrl
       }
 
-      const { data: dbData, error: dbError } = await supabase
+      await supabase
         .from('check_ins')
         .insert([record])
-        .select()
 
-      if (dbError) {
-        console.warn('Inserción en Supabase DB falló, usando respaldo local:', dbError)
+      // 2. Crear o encontrar Jornada activa de hoy
+      const today = new Date().toISOString().slice(0, 10)
+      let activeJornadaId = null
+
+      const { data: existingJornadas } = await supabase
+        .from('jornadas')
+        .select('id, status')
+        .eq('date', today)
+        .eq('status', 'EN_PROGRESO')
+        .limit(1)
+
+      if (existingJornadas && existingJornadas.length > 0) {
+        activeJornadaId = existingJornadas[0].id
+      } else {
+        const { data: newJornada } = await supabase
+          .from('jornadas')
+          .insert([{
+            date: today,
+            start_time: new Date().toISOString(),
+            status: 'EN_PROGRESO'
+          }])
+          .select()
+        if (newJornada && newJornada.length > 0) {
+          activeJornadaId = newJornada[0].id
+        }
       }
 
-      const existingCheckIns = JSON.parse(localStorage.getItem('intendencia_check_ins') || '[]')
-      existingCheckIns.unshift({ ...record, id: dbData?.[0]?.id || `local-${Date.now()}` })
-      localStorage.setItem('intendencia_check_ins', JSON.stringify(existingCheckIns))
+      // 3. Crear Estancia Activa en DB
+      const { data: newEstancia } = await supabase
+        .from('estancias')
+        .insert([{
+          jornada_id: activeJornadaId,
+          terminal_name: selectedTerminal,
+          entry_time: new Date().toISOString(),
+          entry_latitude: coords?.latitude || 0,
+          entry_longitude: coords?.longitude || 0,
+          status: 'ACTIVA'
+        }])
+        .select()
+
+      // 4. Guardar evidencia inicial de Check-In si hay foto
+      if (photoUrl) {
+        await supabase
+          .from('evidencias_fotograficas')
+          .insert([{
+            jornada_id: activeJornadaId,
+            estancia_id: newEstancia?.[0]?.id || null,
+            photo_url: photoUrl,
+            category: 'CHECK_IN',
+            label: `${selectedTerminal} - Foto Entrada Check-In`
+          }])
+      }
 
       setSuccessData({
         terminal: selectedTerminal,

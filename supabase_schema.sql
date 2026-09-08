@@ -143,6 +143,7 @@ CREATE POLICY "Lectura de departamentos" ON public.departamentos FOR SELECT TO a
 
 CREATE POLICY "Lectura de check_ins" ON public.check_ins FOR SELECT TO authenticated, anon USING (true);
 CREATE POLICY "Inserción de check_ins" ON public.check_ins FOR INSERT TO authenticated, anon WITH CHECK (true);
+CREATE POLICY "Actualización de check_ins" ON public.check_ins FOR UPDATE TO authenticated, anon USING (true);
 
 CREATE POLICY "Lectura de jornadas por autenticados" ON public.jornadas FOR SELECT TO authenticated, anon USING (true);
 CREATE POLICY "Escritura de jornadas para supervisora" ON public.jornadas FOR ALL TO authenticated, anon USING (true);
@@ -152,6 +153,7 @@ CREATE POLICY "Escritura de estancias para supervisora" ON public.estancias FOR 
 
 CREATE POLICY "Lectura de evidencias" ON public.evidencias_fotograficas FOR SELECT TO authenticated, anon USING (true);
 CREATE POLICY "Inserción de evidencias" ON public.evidencias_fotograficas FOR INSERT TO authenticated, anon WITH CHECK (true);
+CREATE POLICY "Actualización de evidencias" ON public.evidencias_fotograficas FOR UPDATE TO authenticated, anon USING (true);
 
 CREATE POLICY "Lectura de actividades para jefe y supervisora" ON public.actividades_programadas FOR SELECT TO authenticated, anon USING (true);
 CREATE POLICY "Gestión de actividades programadas para supervisora" ON public.actividades_programadas FOR ALL TO authenticated, anon USING (true);

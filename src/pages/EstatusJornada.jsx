@@ -34,60 +34,46 @@ export default function EstatusJornada() {
     fetchSupervisors()
   }, [])
 
-  // Consulta en tiempo real de datos reales de Supabase DB + Local Storage
+  // Consulta en tiempo real de datos reales exclusivamente de Supabase DB (Sin LocalStorage)
   const loadRealtimeJornadaData = useCallback(async () => {
     setLoadingData(true)
     try {
-      // 1. Obtener check-ins del día seleccionado desde Supabase
+      const today = new Date().toISOString().slice(0, 10)
+
+      // 1. Obtener estado de Jornada en Supabase DB para la fecha seleccionada
+      const { data: dbJornadas } = await supabase
+        .from('jornadas')
+        .select('*')
+        .eq('date', selectedDate)
+        .order('start_time', { ascending: false })
+        .limit(1)
+
+      const activeJornada = dbJornadas?.[0] || null
+
+      // 2. Obtener check-ins de la fecha seleccionada desde Supabase
       const { data: dbCheckIns } = await supabase
         .from('check_ins')
         .select('*')
         .order('check_in_time', { ascending: true })
 
-      // 2. Obtener evidencias fotográficas registradas en Supabase DB
+      // 3. Obtener estancias registradas en Supabase DB
+      const { data: dbEstancias } = await supabase
+        .from('estancias')
+        .select('*')
+        .order('created_at', { ascending: true })
+
+      // 4. Obtener evidencias fotográficas registradas en Supabase DB
       const { data: dbEvidencias } = await supabase
         .from('evidencias_fotograficas')
         .select('*')
 
-      // 3. Cargar respaldo de LocalStorage
-      const localCheckIns = JSON.parse(localStorage.getItem('intendencia_check_ins') || '[]')
-
-      // 4. Verificar si hay estancia activa DEL DÍA DE HOY
-      const today = new Date().toISOString().slice(0, 10)
-      const activeStayRaw = localStorage.getItem('intendencia_active_stay')
-      let activeStay = null
-      if (activeStayRaw) {
-        try {
-          const parsed = JSON.parse(activeStayRaw)
-          if (parsed.date === today) activeStay = parsed
-        } catch { /* ignorar */ }
-      }
-
-      // Registro de cierre explicito de jornada
-      const cierreRaw = localStorage.getItem(`intendencia_cierre_${selectedDate}`)
-      let cierreRecord = null
-      if (cierreRaw) {
-        try { cierreRecord = JSON.parse(cierreRaw) } catch { /* ignorar */ }
-      }
-      if (!cierreRecord) {
-        const cierresList = JSON.parse(localStorage.getItem('intendencia_cierres_jornada') || '[]')
-        cierreRecord = cierresList.find(c => c.date === selectedDate) || null
-      }
-
-      // 5. Filtrar por fecha seleccionada y DEDUPLICAR por id (evita duplicados DB + localStorage)
-      const seenIds = new Set()
-      const combinedCheckIns = [...(dbCheckIns || []), ...localCheckIns]
+      // 5. Filtrar por fecha seleccionada
+      const filteredCheckIns = (dbCheckIns || [])
         .filter(item => {
           const itemDate = item.check_in_time
             ? item.check_in_time.substring(0, 10)
             : item.created_at?.substring(0, 10)
           return itemDate === selectedDate
-        })
-        .filter(item => {
-          const key = item.id || item.check_in_time
-          if (seenIds.has(key)) return false
-          seenIds.add(key)
-          return true
         })
         .sort((a, b) => {
           const ta = new Date(a.check_in_time || a.created_at).getTime()
@@ -95,61 +81,53 @@ export default function EstatusJornada() {
           return ta - tb
         })
 
-      // 6. Calcular tiempo real acumulado
+      // Determinar si la jornada de hoy está activa en DB
+      const isDayCurrentlyActive = selectedDate === today &&
+        activeJornada &&
+        activeJornada.status === 'EN_PROGRESO'
+
       let totalMinutesAccumulated = 0
       const now = new Date()
       const generatedTimeline = []
 
-      // Una jornada de hoy es ACTIVA si hay check-ins y NO se ha marcado cierre de día
-      const isDayCurrentlyActive = selectedDate === today && !cierreRecord && (combinedCheckIns.length > 0 || !!activeStay)
-
-      if (combinedCheckIns.length > 0) {
-        combinedCheckIns.forEach((ci, idx) => {
+      if (filteredCheckIns.length > 0) {
+        filteredCheckIns.forEach((ci, idx) => {
           const ciTime = new Date(ci.check_in_time || ci.created_at || Date.now())
           const timeFormatted = ciTime.toLocaleTimeString('es-ES', {
             hour: '2-digit',
             minute: '2-digit'
           })
 
-          const isLastCheckIn = idx === combinedCheckIns.length - 1
+          const isLastCheckIn = idx === filteredCheckIns.length - 1
           let segmentEndTime
 
           if (!isLastCheckIn) {
-            // El segmento termina cuando comienza el siguiente check-in
-            segmentEndTime = new Date(combinedCheckIns[idx + 1].check_in_time || combinedCheckIns[idx + 1].created_at)
+            segmentEndTime = new Date(filteredCheckIns[idx + 1].check_in_time || filteredCheckIns[idx + 1].created_at)
           } else if (isDayCurrentlyActive) {
-            // Último check-in Y jornada ACTIVA hoy → cuenta hasta el momento actual en vivo
             segmentEndTime = now
-          } else if (cierreRecord && cierreRecord.timestamp) {
-            // Último check-in y jornada FINALIZADA con registro de cierre → fija la hora de salida exacta
-            segmentEndTime = new Date(cierreRecord.timestamp)
+          } else if (activeJornada && activeJornada.end_time) {
+            segmentEndTime = new Date(activeJornada.end_time)
           } else {
-            // Jornada no activa y sin hora de cierre → el tiempo se detiene en el check-in
             segmentEndTime = ciTime
           }
 
           const segmentMinutes = Math.max(0, Math.round((segmentEndTime - ciTime) / 60000))
           totalMinutesAccumulated += segmentMinutes
 
-          // Evidencias locales (notas y fotos)
-          const savedNotes = localStorage.getItem(`estancia_notes_${ci.terminal_name}`)
-          const savedEvidencesRaw = localStorage.getItem(`estancia_evidences_${ci.terminal_name}`)
-          let localEvidences = []
-          if (savedEvidencesRaw) {
-            try { localEvidences = JSON.parse(savedEvidencesRaw) } catch { /* ignorar */ }
-          }
+          // Buscar notas en check_ins o estancias en DB
+          const estanciaMatch = (dbEstancias || []).find(e => e.terminal_name === ci.terminal_name)
+          const notesResolved = ci.notes || estanciaMatch?.notes || null
 
-          // Evidencias de Supabase DB que coincidan con la terminal o check-in
+          // Evidencias de Supabase DB que coincidan con la terminal
           const dbEvMatch = (dbEvidencias || [])
             .filter(ev => ev.label && ev.label.includes(ci.terminal_name))
             .map(ev => ({ label: ev.label, photo_url: ev.photo_url }))
 
-          // Combinar foto de entrada (check-in) con fotos de evidencia de DB y local
+          // Combinar foto de check-in con evidencias DB
           const entryPhoto = ci.photo_url ? [{ label: 'Foto Check-In', photo_url: ci.photo_url }] : []
 
-          // Deduplicar fotos por URL
           const photoSeen = new Set()
-          const allPhotos = [...entryPhoto, ...localEvidences, ...dbEvMatch].filter(p => {
+          const allPhotos = [...entryPhoto, ...dbEvMatch].filter(p => {
             if (!p.photo_url || photoSeen.has(p.photo_url)) return false
             photoSeen.add(p.photo_url)
             return true
@@ -161,13 +139,13 @@ export default function EstatusJornada() {
             terminal: ci.terminal_name,
             type: idx === 0 ? 'CHECK_IN_INICIAL' : 'CAMBIO_TERMINAL',
             statusTag: idx === 0 ? 'Entrada Registrada' : 'En Estancia',
-            notes: savedNotes || ci.notes || null,
+            notes: notesResolved,
             photos: allPhotos
           })
         })
 
-        // 7. Estatus: ACTIVO si la jornada de hoy está en curso
-        const latestCheckIn = combinedCheckIns[combinedCheckIns.length - 1]
+        // Estatus general de la jornada
+        const latestCheckIn = filteredCheckIns[filteredCheckIns.length - 1]
         if (isDayCurrentlyActive) {
           setCurrentTerminalActive(`EN ESTANCIA (${latestCheckIn.terminal_name})`)
           setIsJornadaActive(true)
@@ -176,36 +154,15 @@ export default function EstatusJornada() {
           setIsJornadaActive(false)
         }
 
-      } else if (activeStay && selectedDate === today) {
-        // Sin check-ins en DB pero hay estancia activa local del día de hoy
-        const ciTime = activeStay.timestamp ? new Date(activeStay.timestamp) : now
-        const segmentMinutes = Math.max(0, Math.round((now - ciTime) / 60000))
-        totalMinutesAccumulated += segmentMinutes
-
-        setCurrentTerminalActive(`EN ESTANCIA (${activeStay.terminal})`)
-        setIsJornadaActive(true)
-
-        generatedTimeline.push({
-          id: 'active-1',
-          time: activeStay.time,
-          terminal: activeStay.terminal,
-          type: 'ESTANCIA_ACTIVA',
-          statusTag: 'En Progreso',
-          notes: localStorage.getItem(`estancia_notes_${activeStay.terminal}`) || null,
-          photos: []
-        })
       } else {
         setCurrentTerminalActive('Sin actividad en la fecha seleccionada')
         setIsJornadaActive(false)
       }
 
-      // 7. Formatear reloj de Horas Trabajadas (HH:MM) — máximo razonable 12h
       const clampedMinutes = Math.min(totalMinutesAccumulated, 720)
       const hours = Math.floor(clampedMinutes / 60)
       const mins = clampedMinutes % 60
       setHorasTrabajadas(`${String(hours).padStart(2, '0')}:${String(mins).padStart(2, '0')}`)
-
-      // Solo datos reales (sin datos demo)
       setTimelineItems(generatedTimeline)
 
     } catch (err) {
@@ -215,13 +172,30 @@ export default function EstatusJornada() {
     }
   }, [selectedDate])
 
+  // Escuchar actualizaciones en tiempo real via Supabase Realtime (WebSockets)
   useEffect(() => {
     loadRealtimeJornadaData()
-    // Refresco automático en tiempo real cada 30 segundos si la jornada está activa
-    const interval = setInterval(() => {
-      loadRealtimeJornadaData()
-    }, 30000)
-    return () => clearInterval(interval)
+
+    // Suscripción Realtime a tablas clave para reflejar fotos y estados al instante
+    const channel = supabase
+      .channel('estatus_jornada_realtime')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'evidencias_fotograficas' }, () => {
+        loadRealtimeJornadaData()
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'check_ins' }, () => {
+        loadRealtimeJornadaData()
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'estancias' }, () => {
+        loadRealtimeJornadaData()
+      })
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'jornadas' }, () => {
+        loadRealtimeJornadaData()
+      })
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
   }, [loadRealtimeJornadaData])
 
   return (

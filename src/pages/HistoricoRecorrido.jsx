@@ -27,29 +27,35 @@ export default function HistoricoRecorrido() {
     setTiempoTotalHrsStr('00:00')
     setIsIncompleteDay(false)
     try {
+      const { data: dbJornadas } = await supabase
+        .from('jornadas')
+        .select('*')
+        .eq('date', targetDate)
+        .order('start_time', { ascending: false })
+        .limit(1)
+
+      const activeJornada = dbJornadas?.[0] || null
+
       const { data: dbCheckIns } = await supabase
         .from('check_ins')
         .select('*')
         .order('check_in_time', { ascending: true })
 
+      const { data: dbEstancias } = await supabase
+        .from('estancias')
+        .select('*')
+        .order('created_at', { ascending: true })
+
       const { data: dbEvidencias } = await supabase
         .from('evidencias_fotograficas')
         .select('*')
 
-      const localCheckIns = JSON.parse(localStorage.getItem('intendencia_check_ins') || '[]')
-      const seenIds = new Set()
-      const filteredCheckIns = [...(dbCheckIns || []), ...localCheckIns]
+      const filteredCheckIns = (dbCheckIns || [])
         .filter(item => {
           const itemDate = item.check_in_time
             ? item.check_in_time.substring(0, 10)
             : item.created_at?.substring(0, 10)
           return itemDate === targetDate
-        })
-        .filter(item => {
-          const key = item.id || item.check_in_time
-          if (seenIds.has(key)) return false
-          seenIds.add(key)
-          return true
         })
         .sort((a, b) => {
           const ta = new Date(a.check_in_time || a.created_at).getTime()
@@ -64,28 +70,9 @@ export default function HistoricoRecorrido() {
       const now = new Date()
       const today = new Date().toISOString().slice(0, 10)
 
-      let activeStay = null
-      const activeStayRaw = localStorage.getItem('intendencia_active_stay')
-      if (activeStayRaw) {
-        try {
-          const parsed = JSON.parse(activeStayRaw)
-          if (parsed.date === today) activeStay = parsed
-        } catch { /* ignorar */ }
-      }
-
-      // Registro de cierre explicito de jornada
-      const cierreRaw = localStorage.getItem(`intendencia_cierre_${targetDate}`)
-      let cierreRecord = null
-      if (cierreRaw) {
-        try { cierreRecord = JSON.parse(cierreRaw) } catch { /* ignorar */ }
-      }
-      if (!cierreRecord) {
-        const cierresList = JSON.parse(localStorage.getItem('intendencia_cierres_jornada') || '[]')
-        cierreRecord = cierresList.find(c => c.date === targetDate) || null
-      }
-
-      // Una jornada de hoy es ACTIVA si hay check-ins y NO se ha marcado cierre
-      const isDayCurrentlyActive = targetDate === today && !cierreRecord && (filteredCheckIns.length > 0 || !!activeStay)
+      const isDayCurrentlyActive = targetDate === today &&
+        activeJornada &&
+        activeJornada.status === 'EN_PROGRESO'
 
       const firstCI = filteredCheckIns[0]
       const firstTime = new Date(firstCI.check_in_time || firstCI.created_at)
@@ -106,8 +93,8 @@ export default function HistoricoRecorrido() {
           exitTime = new Date(filteredCheckIns[idx + 1].check_in_time || filteredCheckIns[idx + 1].created_at)
         } else if (isDayCurrentlyActive) {
           exitTime = now
-        } else if (cierreRecord && cierreRecord.timestamp) {
-          exitTime = new Date(cierreRecord.timestamp)
+        } else if (activeJornada && activeJornada.end_time) {
+          exitTime = new Date(activeJornada.end_time)
         } else {
           exitTime = entryTime
         }
@@ -125,13 +112,9 @@ export default function HistoricoRecorrido() {
           ? exitTime.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
           : 'En curso'
 
-        // Notas y evidencias desde Supabase DB y LocalStorage
-        const savedNotes = ci.notes || localStorage.getItem(`estancia_notes_${ci.terminal_name}`) || null
-        const savedEvidencesRaw = localStorage.getItem(`estancia_evidences_${ci.terminal_name}`)
-        let localEvidences = []
-        if (savedEvidencesRaw) {
-          try { localEvidences = JSON.parse(savedEvidencesRaw) } catch { /* ignorar */ }
-        }
+        // Notas y evidencias exclusivamente desde Supabase DB
+        const estanciaMatch = (dbEstancias || []).find(e => e.terminal_name === ci.terminal_name)
+        const savedNotes = ci.notes || estanciaMatch?.notes || null
 
         const dbEvMatch = (dbEvidencias || [])
           .filter(ev => ev.label && ev.label.includes(ci.terminal_name))
@@ -139,7 +122,7 @@ export default function HistoricoRecorrido() {
 
         const entryPhoto = ci.photo_url ? [{ label: 'Foto Check-In', photo_url: ci.photo_url }] : []
         const photoSeen = new Set()
-        const photos = [...entryPhoto, ...localEvidences, ...dbEvMatch].filter(p => {
+        const photos = [...entryPhoto, ...dbEvMatch].filter(p => {
           if (!p.photo_url || photoSeen.has(p.photo_url)) return false
           photoSeen.add(p.photo_url)
           return true
@@ -165,13 +148,17 @@ export default function HistoricoRecorrido() {
       })
 
       const lastCI = filteredCheckIns[filteredCheckIns.length - 1]
-      if (!activeStay || targetDate !== today) {
+      if (!isDayCurrentlyActive) {
+        const salidaTimeStr = activeJornada?.end_time
+          ? new Date(activeJornada.end_time).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
+          : '—'
+
         generatedEvents.push({
           id: 'node-end',
           type: 'SALIDA_FINAL',
           title: 'SALIDA',
           terminal: lastCI.terminal_name,
-          time: '—'
+          time: salidaTimeStr
         })
       }
 
