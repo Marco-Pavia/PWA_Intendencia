@@ -16,6 +16,8 @@ export default function Estancia({ currentTerminal = 'Terminal Pipila', entryTim
   // Sincronizar evidencias y notas exclusivamente con Supabase DB en tiempo real
   useEffect(() => {
     const fetchCloudEstanciaData = async () => {
+      setNotes('')
+      setEvidences([])
       try {
         // 1. Cargar notas desde la estancia activa o check-in en DB
         const { data: dbEstancia } = await supabase
@@ -41,24 +43,53 @@ export default function Estancia({ currentTerminal = 'Terminal Pipila', entryTim
           }
         }
 
-        // 2. Cargar evidencias fotográficas de la terminal en DB
+        // 2. Cargar evidencias fotográficas y fotos de check-in de la terminal en DB
         const { data: dbEvidencias } = await supabase
           .from('evidencias_fotograficas')
           .select('*')
           .order('created_at', { ascending: true })
 
-        if (dbEvidencias && dbEvidencias.length > 0) {
-          const terminalEvs = dbEvidencias
-            .filter(ev => ev.label && ev.label.includes(currentTerminal))
-            .map((ev, idx) => ({
-              id: ev.id || `ev-db-${idx}`,
-              type: ev.category || 'LIMPIEZA',
-              label: ev.label,
-              photo_url: ev.photo_url
-            }))
+        const { data: ciPhotos } = await supabase
+          .from('check_ins')
+          .select('photo_url, terminal_name, check_in_time')
+          .eq('terminal_name', currentTerminal)
+          .order('check_in_time', { ascending: false })
 
-          setEvidences(terminalEvs)
+        const loadedEvs = []
+        const seenUrls = new Set()
+
+        if (ciPhotos && ciPhotos.length > 0) {
+          ciPhotos.forEach(ci => {
+            if (ci.photo_url && !seenUrls.has(ci.photo_url)) {
+              seenUrls.add(ci.photo_url)
+              loadedEvs.push({
+                id: `ci-photo-${ci.check_in_time}`,
+                type: 'CHECK_IN',
+                label: `${currentTerminal} - Foto Check-In`,
+                photo_url: ci.photo_url
+              })
+            }
+          })
         }
+
+        if (dbEvidencias && dbEvidencias.length > 0) {
+          dbEvidencias.forEach((ev, idx) => {
+            const matchesTerminal = (ev.label && ev.label.includes(currentTerminal)) ||
+              (dbEstancia && dbEstancia.length > 0 && ev.estancia_id === dbEstancia[0].id)
+
+            if (matchesTerminal && ev.photo_url && !seenUrls.has(ev.photo_url)) {
+              seenUrls.add(ev.photo_url)
+              loadedEvs.push({
+                id: ev.id || `ev-db-${idx}`,
+                type: ev.category || 'SUPERVISION',
+                label: ev.label || `${currentTerminal} - Evidencia`,
+                photo_url: ev.photo_url
+              })
+            }
+          })
+        }
+
+        setEvidences(loadedEvs)
       } catch (err) {
         console.warn('Error al obtener datos de estancia desde Supabase:', err)
       }
@@ -70,14 +101,22 @@ export default function Estancia({ currentTerminal = 'Terminal Pipila', entryTim
   // Función de ayuda para respaldar notas en Supabase DB (estancias y check_ins)
   const saveNotesToSupabase = async (notesText) => {
     try {
-      // Actualizar en estancias de la terminal activa
-      await supabase
+      // 1. Obtener ID de la estancia más reciente de esta terminal
+      const { data: latestEst } = await supabase
         .from('estancias')
-        .update({ notes: notesText, updated_at: new Date().toISOString() })
+        .select('id')
         .eq('terminal_name', currentTerminal)
-        .eq('status', 'ACTIVA')
+        .order('created_at', { ascending: false })
+        .limit(1)
 
-      // Actualizar en check_ins
+      if (latestEst && latestEst.length > 0) {
+        await supabase
+          .from('estancias')
+          .update({ notes: notesText, updated_at: new Date().toISOString() })
+          .eq('id', latestEst[0].id)
+      }
+
+      // 2. Actualizar en check_ins
       const { data: latestCI } = await supabase
         .from('check_ins')
         .select('id')
@@ -219,16 +258,21 @@ export default function Estancia({ currentTerminal = 'Terminal Pipila', entryTim
 
       if (evErr) {
         console.error('Error al insertar evidencia en Supabase DB:', evErr)
+        setSaveSuccessMsg(`⚠️ Error al sincronizar evidencia en DB: ${evErr.message || 'Error de permisos'}`)
+      } else {
+        setSaveSuccessMsg('¡Foto WebP subida y guardada en Supabase DB!')
       }
 
-      setEvidences(prev => [...prev, newEvidence])
+      setEvidences(prev => {
+        const exists = prev.some(item => item.photo_url === finalPhotoUrl)
+        return exists ? prev : [...prev, newEvidence]
+      })
 
       // Sincronizar también las notas actuales en DB
       await saveNotesToSupabase(notes)
-
-      setSaveSuccessMsg('¡Foto WebP subida y sincronizada en tiempo real en Supabase!')
     } catch (err) {
       console.error('Error al subir evidencia:', err)
+      setSaveSuccessMsg('Error al procesar fotografía de evidencia.')
     } finally {
       setUploading(false)
     }

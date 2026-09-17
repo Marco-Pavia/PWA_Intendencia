@@ -88,8 +88,16 @@ export default function HistoricoRecorrido() {
         const entryTime = new Date(ci.check_in_time || ci.created_at)
         const isLast = idx === filteredCheckIns.length - 1
 
+        // Notas y estancia correspondiente en DB
+        const estanciaMatch = (dbEstancias || []).find(e =>
+          e.terminal_name === ci.terminal_name &&
+          (e.status === 'FINALIZADA' || e.status === 'ACTIVA')
+        )
+
         let exitTime
-        if (!isLast) {
+        if (estanciaMatch && estanciaMatch.exit_time) {
+          exitTime = new Date(estanciaMatch.exit_time)
+        } else if (!isLast) {
           exitTime = new Date(filteredCheckIns[idx + 1].check_in_time || filteredCheckIns[idx + 1].created_at)
         } else if (isDayCurrentlyActive) {
           exitTime = now
@@ -112,13 +120,14 @@ export default function HistoricoRecorrido() {
           ? exitTime.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
           : 'En curso'
 
-        // Notas y evidencias exclusivamente desde Supabase DB
-        const estanciaMatch = (dbEstancias || []).find(e => e.terminal_name === ci.terminal_name)
         const savedNotes = ci.notes || estanciaMatch?.notes || null
 
         const dbEvMatch = (dbEvidencias || [])
-          .filter(ev => ev.label && ev.label.includes(ci.terminal_name))
-          .map(ev => ({ label: ev.label, photo_url: ev.photo_url }))
+          .filter(ev =>
+            (ev.label && ev.label.includes(ci.terminal_name)) ||
+            (estanciaMatch && ev.estancia_id === estanciaMatch.id)
+          )
+          .map(ev => ({ label: ev.label || `${ci.terminal_name} - Evidencia`, photo_url: ev.photo_url }))
 
         const entryPhoto = ci.photo_url ? [{ label: 'Foto Check-In', photo_url: ci.photo_url }] : []
         const photoSeen = new Set()

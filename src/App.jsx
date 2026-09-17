@@ -37,6 +37,7 @@ function AppContent() {
             .limit(1)
 
           if (activeJornada && activeJornada.length > 0) {
+            // 1. Verificar si hay estancia ACTIVA
             const { data: activeEstancia } = await supabase
               .from('estancias')
               .select('terminal_name, entry_time')
@@ -50,6 +51,20 @@ function AppContent() {
               const timeFormatted = new Date(activeEstancia[0].entry_time).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
               setEntryTimeStr(timeFormatted)
               setActiveScreen(2)
+              return
+            }
+
+            // 2. Si hay jornada activa pero la estancia previa fue finalizada (en traslao/cambio de terminal)
+            const { data: latestEstancia } = await supabase
+              .from('estancias')
+              .select('terminal_name')
+              .eq('jornada_id', activeJornada[0].id)
+              .order('created_at', { ascending: false })
+              .limit(1)
+
+            if (latestEstancia && latestEstancia.length > 0) {
+              setCurrentTerminal(latestEstancia[0].terminal_name)
+              setActiveScreen(3) // Redirigir a Cambio de Terminal
               return
             }
           }
@@ -84,6 +99,23 @@ function AppContent() {
     setActiveScreen(2)
   }
 
+  // 1.5 Al registrar salida de terminal en Pantalla 2 -> Cierra la estancia activa en DB e ir a Cambio de Terminal
+  const handleSalidaTerminal = async () => {
+    try {
+      await supabase
+        .from('estancias')
+        .update({
+          exit_time: new Date().toISOString(),
+          status: 'FINALIZADA',
+          updated_at: new Date().toISOString()
+        })
+        .eq('status', 'ACTIVA')
+    } catch (err) {
+      console.warn('Error al registrar salida de estancia en DB:', err)
+    }
+    setActiveScreen(3)
+  }
+
   // 2. Al cambiar de terminal en Pantalla 3 -> Cierra estancia previa, guarda Check-In y crea nueva estancia activa en DB
   const handleCambiarTerminal = async (newTerminalName) => {
     const timeNow = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
@@ -93,7 +125,7 @@ function AppContent() {
     const validUserId = isUuid ? user.id : null
 
     try {
-      // 1. Finalizar estancia previa en DB
+      // 1. Finalizar estancia previa en DB por seguridad si no fue marcada
       const { error: exitEstErr } = await supabase
         .from('estancias')
         .update({
@@ -226,7 +258,7 @@ function AppContent() {
           <Estancia
             currentTerminal={currentTerminal}
             entryTimeStr={entryTimeStr}
-            onSalidaTerminal={() => setActiveScreen(3)}
+            onSalidaTerminal={handleSalidaTerminal}
           />
         )}
 

@@ -99,10 +99,20 @@ export default function EstatusJornada() {
             second: '2-digit'
           })
 
+          // Buscar notas y estancia correspondiente en DB para esta terminal y fecha
+          const estanciaMatch = (dbEstancias || []).find(e =>
+            e.terminal_name === ci.terminal_name &&
+            (e.created_at?.slice(0, 10) === selectedDate || e.entry_time?.slice(0, 10) === selectedDate)
+          )
+
           const isLastCheckIn = idx === filteredCheckIns.length - 1
           let segmentEndTime
 
-          if (!isLastCheckIn) {
+          if (estanciaMatch && estanciaMatch.status === 'FINALIZADA' && estanciaMatch.exit_time) {
+            segmentEndTime = new Date(estanciaMatch.exit_time)
+          } else if (estanciaMatch && estanciaMatch.status === 'ACTIVA') {
+            segmentEndTime = now
+          } else if (!isLastCheckIn) {
             segmentEndTime = new Date(filteredCheckIns[idx + 1].check_in_time || filteredCheckIns[idx + 1].created_at)
           } else if (isDayCurrentlyActive) {
             segmentEndTime = now
@@ -115,14 +125,15 @@ export default function EstatusJornada() {
           const segmentMinutes = Math.max(0, Math.round((segmentEndTime - ciTime) / 60000))
           totalMinutesAccumulated += segmentMinutes
 
-          // Buscar notas en check_ins o estancias en DB
-          const estanciaMatch = (dbEstancias || []).find(e => e.terminal_name === ci.terminal_name)
           const notesResolved = ci.notes || estanciaMatch?.notes || null
 
-          // Evidencias de Supabase DB que coincidan con la terminal
+          // Evidencias de Supabase DB que coincidan por terminal_name, estancia_id o jornada_id
           const dbEvMatch = (dbEvidencias || [])
-            .filter(ev => ev.label && ev.label.includes(ci.terminal_name))
-            .map(ev => ({ label: ev.label, photo_url: ev.photo_url }))
+            .filter(ev =>
+              (ev.label && ev.label.includes(ci.terminal_name)) ||
+              (estanciaMatch && ev.estancia_id === estanciaMatch.id)
+            )
+            .map(ev => ({ label: ev.label || `${ci.terminal_name} - Evidencia`, photo_url: ev.photo_url }))
 
           // Combinar foto de check-in con evidencias DB
           const entryPhoto = ci.photo_url ? [{ label: 'Foto Check-In', photo_url: ci.photo_url }] : []
@@ -139,7 +150,7 @@ export default function EstatusJornada() {
             time: timeFormatted,
             terminal: ci.terminal_name,
             type: idx === 0 ? 'CHECK_IN_INICIAL' : 'CAMBIO_TERMINAL',
-            statusTag: idx === 0 ? 'Entrada Registrada' : 'En Estancia',
+            statusTag: estanciaMatch?.status === 'FINALIZADA' ? 'Salida Registrada' : (idx === 0 ? 'Entrada Registrada' : 'En Estancia'),
             notes: notesResolved,
             photos: allPhotos
           })
@@ -147,8 +158,14 @@ export default function EstatusJornada() {
 
         // Estatus general de la jornada
         const latestCheckIn = filteredCheckIns[filteredCheckIns.length - 1]
+        const activeEstInDb = (dbEstancias || []).find(e => e.status === 'ACTIVA')
+
         if (isDayCurrentlyActive) {
-          setCurrentTerminalActive(`EN ESTANCIA (${latestCheckIn.terminal_name})`)
+          if (activeEstInDb) {
+            setCurrentTerminalActive(`EN ESTANCIA (${activeEstInDb.terminal_name})`)
+          } else {
+            setCurrentTerminalActive(`EN TRASLADO / SALIDA DE TERMINAL (${latestCheckIn.terminal_name})`)
+          }
           setIsJornadaActive(true)
         } else {
           setCurrentTerminalActive(`JORNADA FINALIZADA (${latestCheckIn.terminal_name})`)
