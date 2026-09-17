@@ -31,14 +31,11 @@ export default function CambioTerminal({ onCambiarTerminal, onFinalizarJornada }
 
   return (
     <div className="cambio-terminal-container">
-      <div className="screen-tag-bar">
-        PANTALLA 3 · Cambio de Terminal / Fin de Día
-      </div>
 
       {/* Card 1: Cambio de Terminal */}
       <div className="form-section-card transition-card">
         <h3>Seleccionar Nueva Terminal</h3>
-        
+
         <div className="custom-select-wrapper margin-v">
           <select
             value={selectedTerminal}

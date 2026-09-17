@@ -200,9 +200,6 @@ export default function EstatusJornada() {
 
   return (
     <div className="estatus-jornada-container">
-      <div className="screen-tag-bar">
-        PANTALLA 4 · Estatus de Jornada (Vista Principal Jefe)
-      </div>
 
       {/* Header Dashboard Card */}
       <div className="dashboard-header-card">

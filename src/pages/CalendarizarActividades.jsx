@@ -122,9 +122,6 @@ export default function CalendarizarActividades() {
 
   return (
     <div className="calendarizar-actividades-container">
-      <div className="screen-tag-bar">
-        PANTALLA 8 · Calendarizar Actividades (Vista Supervisora)
-      </div>
 
       <div className="form-section-card">
         <h2>Calendarizar Actividades</h2>

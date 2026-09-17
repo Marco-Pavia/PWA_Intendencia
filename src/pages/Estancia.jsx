@@ -195,9 +195,6 @@ export default function Estancia({ currentTerminal = 'Terminal Pipila', entryTim
 
   return (
     <div className="estancia-page-container">
-      <div className="screen-tag-bar">
-        PANTALLA 2 · Estancia (Fotos y Notas)
-      </div>
 
       {/* Mensaje de Confirmación de Guardado */}
       {saveSuccessMsg && (

@@ -61,9 +61,6 @@ export default function VisualizacionActividades() {
 
   return (
     <div className="visualizacion-actividades-container">
-      <div className="screen-tag-bar">
-        PANTALLA 9 · Visualización de Actividades Cargadas (Vista Jefe)
-      </div>
 
       <div className="form-section-card">
         <h2>Supervisión de Actividades</h2>

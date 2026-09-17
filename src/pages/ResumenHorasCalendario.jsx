@@ -39,9 +39,6 @@ export default function ResumenHorasCalendario() {
 
   return (
     <div className="resumen-calendario-container">
-      <div className="screen-tag-bar">
-        PANTALLA 7 · Resumen de Horas (Calendario)
-      </div>
 
       {/* Month Navigation Header */}
       <div className="form-section-card calendar-header-box">

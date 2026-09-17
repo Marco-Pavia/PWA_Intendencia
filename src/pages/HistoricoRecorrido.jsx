@@ -183,9 +183,6 @@ export default function HistoricoRecorrido() {
 
   return (
     <div className="historico-page-container">
-      <div className="screen-tag-bar">
-        PANTALLA 5 · Histórico de Recorrido
-      </div>
 
       {/* Date Header Card */}
       <div className="form-section-card historico-header-card">

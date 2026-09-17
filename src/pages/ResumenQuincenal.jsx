@@ -31,9 +31,6 @@ export default function ResumenQuincenal() {
 
   return (
     <div className="resumen-quincenal-container">
-      <div className="screen-tag-bar">
-        PANTALLA 6 · Resumen Quincenal (Reportes Exportables)
-      </div>
 
       <div id="quincenal-report-content">
         {/* Period & Supervisor Selection Header */}
