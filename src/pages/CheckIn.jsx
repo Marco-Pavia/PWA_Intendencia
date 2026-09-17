@@ -369,7 +369,7 @@ export default function CheckIn({ onCheckInSuccess }) {
               }
             }}
           >
-            Continuar a Estancia en Terminal (Pantalla 2) →
+            Continuar a Estancia en Terminal
           </button>
         </div>
       ) : (
@@ -520,10 +520,10 @@ export default function CheckIn({ onCheckInSuccess }) {
               {submitting ? 'Guardando Registro WebP...' : 'COMPLETAR REGISTRO DE ENTRADA'}
             </button>
             {gpsStatus !== 'connected' && (
-              <p className="disabled-hint">⚠️ Esperando confirmación de ubicación GPS para habilitar registro.</p>
+              <p className="disabled-hint">Esperando confirmación de ubicación GPS para habilitar registro.</p>
             )}
             {gpsStatus === 'connected' && !photoFileWebP && (
-              <p className="disabled-hint">⚠️ Toma la foto requerida para habilitar registro.</p>
+              <p className="disabled-hint">Toma la foto requerida para habilitar registro.</p>
             )}
           </div>
         </div>
