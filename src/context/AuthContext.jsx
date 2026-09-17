@@ -114,7 +114,7 @@ export function AuthProvider({ children }) {
   const loginAsRole = (selectedRole) => {
     const isJefe = selectedRole === ROLES.JEFE
     const demoUser = {
-      id: isJefe ? 'demo-jefe-01' : 'demo-supervisora-01',
+      id: isJefe ? '00000000-0000-0000-0000-000000000002' : '00000000-0000-0000-0000-000000000001',
       email: isJefe ? 'jefe@intendencia.com' : 'supervisora@intendencia.com',
       user_metadata: {
         full_name: isJefe ? 'Jefe Inmediato Directo' : 'Supervisora Intendencia'
@@ -135,20 +135,9 @@ export function AuthProvider({ children }) {
     localStorage.removeItem('intendencia_demo_user')
   }
 
-  const switchRole = (newRole) => {
-    setRole(newRole)
-    if (user && user.id?.startsWith('demo-')) {
-      const isJefe = newRole === ROLES.JEFE
-      const updatedUser = {
-        ...user,
-        email: isJefe ? 'jefe@intendencia.com' : 'supervisora@intendencia.com',
-        user_metadata: {
-          full_name: isJefe ? 'Jefe Inmediato Directo' : 'Supervisora Intendencia'
-        }
-      }
-      setUser(updatedUser)
-      localStorage.setItem('intendencia_demo_user', JSON.stringify({ user: updatedUser, role: newRole }))
-    }
+  // Se deshabilita el cambio dinámico de rol a petición del usuario
+  const switchRole = () => {
+    console.warn('[Auth] El cambio de rol ha sido deshabilitado.')
   }
 
   return (

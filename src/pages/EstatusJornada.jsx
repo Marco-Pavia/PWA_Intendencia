@@ -95,7 +95,8 @@ export default function EstatusJornada() {
           const ciTime = new Date(ci.check_in_time || ci.created_at || Date.now())
           const timeFormatted = ciTime.toLocaleTimeString('es-ES', {
             hour: '2-digit',
-            minute: '2-digit'
+            minute: '2-digit',
+            second: '2-digit'
           })
 
           const isLastCheckIn = idx === filteredCheckIns.length - 1

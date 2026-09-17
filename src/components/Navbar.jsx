@@ -68,21 +68,12 @@ export default function Navbar({ currentScreen, onSelectScreen }) {
             </button>
           )}
 
-          {/* Selector para cambiar de rol en desarrollo */}
-          <div className="role-switcher-pill">
+          {/* Indicador de rol activo (sin cambio de rol) */}
+          <div className="role-switcher-pill" style={{ cursor: 'default' }}>
             <span className="role-dot"></span>
-            <select
-              value={role}
-              onChange={(e) => {
-                const newRole = e.target.value
-                switchRole(newRole)
-                onSelectScreen(newRole === ROLES.SUPERVISORA ? 1 : 4)
-              }}
-              className="role-select-inline"
-            >
-              <option value={ROLES.SUPERVISORA}>Supervisora</option>
-              <option value={ROLES.JEFE}>Jefe Inmediato</option>
-            </select>
+            <span style={{ fontSize: '0.8rem', fontWeight: 600, color: 'var(--primary-navy)', paddingRight: '0.4rem' }}>
+              {isSupervisora ? 'Supervisora' : 'Jefe Inmediato'}
+            </span>
           </div>
 
           <button type="button" className="btn-logout" onClick={logout} title="Cerrar Sesión">

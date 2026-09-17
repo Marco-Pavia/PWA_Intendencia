@@ -4,7 +4,7 @@ import { convertAndCompressToWebP } from '../utils/imageCompressor'
 
 const MAX_NOTES_LENGTH = 500
 
-export default function Estancia({ currentTerminal = 'Terminal Pipila', entryTimeStr = '09:15 AM', onSalidaTerminal }) {
+export default function Estancia({ currentTerminal = 'Terminal Pipila', entryTimeStr = '09:15:00 AM', onSalidaTerminal }) {
   const [notes, setNotes] = useState('')
   const [evidences, setEvidences] = useState([])
   const [uploading, setUploading] = useState(false)
@@ -143,15 +143,63 @@ export default function Estancia({ currentTerminal = 'Terminal Pipila', entryTim
         console.warn('Subida a storage omitida, usando Base64:', cloudErr)
       }
 
-      // Obtener estancia activa para asociar ID
+      // Obtener o garantizar estancia activa para asociar IDs en evidencias fotográficas
+      let targetEstanciaId = null
+      let targetJornadaId = null
+
       const { data: activeEst } = await supabase
         .from('estancias')
         .select('id, jornada_id')
         .eq('terminal_name', currentTerminal)
+        .eq('status', 'ACTIVA')
         .order('created_at', { ascending: false })
         .limit(1)
 
-      const timeLabel = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
+      if (activeEst && activeEst.length > 0) {
+        targetEstanciaId = activeEst[0].id
+        targetJornadaId = activeEst[0].jornada_id
+      } else {
+        // Fallback a última estancia de la terminal
+        const { data: latestEst } = await supabase
+          .from('estancias')
+          .select('id, jornada_id')
+          .eq('terminal_name', currentTerminal)
+          .order('created_at', { ascending: false })
+          .limit(1)
+
+        if (latestEst && latestEst.length > 0) {
+          targetEstanciaId = latestEst[0].id
+          targetJornadaId = latestEst[0].jornada_id
+        } else {
+          // Si no existe estancia en DB, crearla automáticamente para asegurar guardado
+          const today = new Date().toISOString().slice(0, 10)
+          const { data: activeJornada } = await supabase
+            .from('jornadas')
+            .select('id')
+            .eq('date', today)
+            .eq('status', 'EN_PROGRESO')
+            .limit(1)
+
+          let jId = activeJornada?.[0]?.id || null
+
+          const { data: createdEst } = await supabase
+            .from('estancias')
+            .insert([{
+              jornada_id: jId,
+              terminal_name: currentTerminal,
+              entry_time: new Date().toISOString(),
+              status: 'ACTIVA'
+            }])
+            .select()
+
+          if (createdEst && createdEst.length > 0) {
+            targetEstanciaId = createdEst[0].id
+            targetJornadaId = createdEst[0].jornada_id
+          }
+        }
+      }
+
+      const timeLabel = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
       const newEvidence = {
         id: `ev-${Date.now()}`,
         type: 'LIMPIEZA',
@@ -160,21 +208,25 @@ export default function Estancia({ currentTerminal = 'Terminal Pipila', entryTim
         fileSize: (webpFile.size / 1024).toFixed(1)
       }
 
-      // Guardar directamente en tabla 'evidencias_fotograficas' de Supabase DB
-      await supabase.from('evidencias_fotograficas').insert([{
-        estancia_id: activeEst?.[0]?.id || null,
-        jornada_id: activeEst?.[0]?.jornada_id || null,
+      // Guardar directamente en tabla 'evidencias_fotograficas' de Supabase DB con estancia_id y jornada_id
+      const { error: evErr } = await supabase.from('evidencias_fotograficas').insert([{
+        estancia_id: targetEstanciaId,
+        jornada_id: targetJornadaId,
         photo_url: finalPhotoUrl,
         category: 'SUPERVISION',
         label: newEvidence.label
       }])
+
+      if (evErr) {
+        console.error('Error al insertar evidencia en Supabase DB:', evErr)
+      }
 
       setEvidences(prev => [...prev, newEvidence])
 
       // Sincronizar también las notas actuales en DB
       await saveNotesToSupabase(notes)
 
-      setSaveSuccessMsg('¡Foto WebP subida y sincronizada en tiempo real!')
+      setSaveSuccessMsg('¡Foto WebP subida y sincronizada en tiempo real en Supabase!')
     } catch (err) {
       console.error('Error al subir evidencia:', err)
     } finally {

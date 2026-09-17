@@ -218,9 +218,13 @@ export default function CheckIn({ onCheckInSuccess }) {
         photoUrl = publicUrlData?.publicUrl || photoPreview
       }
 
+      // Validar si el ID de usuario tiene formato de UUID estándar
+      const isUuid = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(user?.id || '')
+      const validUserId = isUuid ? user.id : null
+
       // 1. Inserción en tabla 'check_ins'
       const record = {
-        user_id: user?.id || null,
+        user_id: validUserId,
         user_name: user?.user_metadata?.full_name || 'Supervisora Intendencia',
         role: 'supervisora',
         terminal_name: selectedTerminal,
@@ -230,39 +234,53 @@ export default function CheckIn({ onCheckInSuccess }) {
         photo_url: photoUrl
       }
 
-      await supabase
+      const { error: ciError } = await supabase
         .from('check_ins')
         .insert([record])
+
+      if (ciError) {
+        console.warn('Error al insertar check_in en Supabase DB:', ciError)
+      }
 
       // 2. Crear o encontrar Jornada activa de hoy
       const today = new Date().toISOString().slice(0, 10)
       let activeJornadaId = null
 
-      const { data: existingJornadas } = await supabase
+      const { data: existingJornadas, error: existingJornadasErr } = await supabase
         .from('jornadas')
         .select('id, status')
         .eq('date', today)
         .eq('status', 'EN_PROGRESO')
         .limit(1)
 
+      if (existingJornadasErr) {
+        console.warn('Error al buscar jornadas existentes:', existingJornadasErr)
+      }
+
       if (existingJornadas && existingJornadas.length > 0) {
         activeJornadaId = existingJornadas[0].id
       } else {
-        const { data: newJornada } = await supabase
+        const { data: newJornada, error: newJornadaErr } = await supabase
           .from('jornadas')
           .insert([{
+            supervisor_id: validUserId,
             date: today,
             start_time: new Date().toISOString(),
             status: 'EN_PROGRESO'
           }])
           .select()
+
+        if (newJornadaErr) {
+          console.warn('Error al insertar nueva jornada en Supabase:', newJornadaErr)
+        }
+
         if (newJornada && newJornada.length > 0) {
           activeJornadaId = newJornada[0].id
         }
       }
 
       // 3. Crear Estancia Activa en DB
-      const { data: newEstancia } = await supabase
+      const { data: newEstancia, error: estanciaErr } = await supabase
         .from('estancias')
         .insert([{
           jornada_id: activeJornadaId,
@@ -274,9 +292,13 @@ export default function CheckIn({ onCheckInSuccess }) {
         }])
         .select()
 
+      if (estanciaErr) {
+        console.error('Error al insertar estancia activa en Supabase:', estanciaErr)
+      }
+
       // 4. Guardar evidencia inicial de Check-In si hay foto
       if (photoUrl) {
-        await supabase
+        const { error: evErr } = await supabase
           .from('evidencias_fotograficas')
           .insert([{
             jornada_id: activeJornadaId,
@@ -285,11 +307,15 @@ export default function CheckIn({ onCheckInSuccess }) {
             category: 'CHECK_IN',
             label: `${selectedTerminal} - Foto Entrada Check-In`
           }])
+
+        if (evErr) {
+          console.error('Error al insertar evidencia fotografica en Supabase:', evErr)
+        }
       }
 
       setSuccessData({
         terminal: selectedTerminal,
-        time: new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' }),
+        time: new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
         date: getFormattedDate(),
         photoUrl: photoUrl,
         fileSize: (photoFileWebP.size / 1024).toFixed(1)

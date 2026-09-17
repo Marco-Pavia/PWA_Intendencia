@@ -19,7 +19,7 @@ function AppContent() {
   // Estado de navegación entre pantallas (1 a 9)
   const [activeScreen, setActiveScreen] = useState(1)
   const [currentTerminal, setCurrentTerminal] = useState('Terminal Pipila')
-  const [entryTimeStr, setEntryTimeStr] = useState('09:15 AM')
+  const [entryTimeStr, setEntryTimeStr] = useState('09:15:00 AM')
 
   // Establecer pantalla inicial según el rol y verificar estado en Supabase DB
   useEffect(() => {
@@ -47,7 +47,7 @@ function AppContent() {
 
             if (activeEstancia && activeEstancia.length > 0) {
               setCurrentTerminal(activeEstancia[0].terminal_name)
-              const timeFormatted = new Date(activeEstancia[0].entry_time).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
+              const timeFormatted = new Date(activeEstancia[0].entry_time).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
               setEntryTimeStr(timeFormatted)
               setActiveScreen(2)
               return
@@ -78,7 +78,7 @@ function AppContent() {
 
   // 1. Al completar Entrada (Check-In) en Pantalla 1 -> Pasa a Pantalla 2 (Estancia)
   const handleCheckInComplete = (selectedTerminalName) => {
-    const timeNow = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
+    const timeNow = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
     setCurrentTerminal(selectedTerminalName)
     setEntryTimeStr(timeNow)
     setActiveScreen(2)
@@ -86,12 +86,15 @@ function AppContent() {
 
   // 2. Al cambiar de terminal en Pantalla 3 -> Cierra estancia previa, guarda Check-In y crea nueva estancia activa en DB
   const handleCambiarTerminal = async (newTerminalName) => {
-    const timeNow = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
+    const timeNow = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
     const today = new Date().toISOString().slice(0, 10)
 
+    const isUuid = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(user?.id || '')
+    const validUserId = isUuid ? user.id : null
+
     try {
-      // Finalizar estancia previa en DB
-      await supabase
+      // 1. Finalizar estancia previa en DB
+      const { error: exitEstErr } = await supabase
         .from('estancias')
         .update({
           exit_time: new Date().toISOString(),
@@ -100,9 +103,13 @@ function AppContent() {
         })
         .eq('status', 'ACTIVA')
 
-      // Registrar nuevo Check-In
+      if (exitEstErr) {
+        console.warn('Error al cerrar estancia previa:', exitEstErr)
+      }
+
+      // 2. Registrar nuevo Check-In de Cambio de Terminal
       const record = {
-        user_id: user?.id || null,
+        user_id: validUserId,
         user_name: user?.user_metadata?.full_name || 'Supervisora Intendencia',
         role: 'supervisora',
         terminal_name: newTerminalName,
@@ -112,11 +119,16 @@ function AppContent() {
         photo_url: null
       }
 
-      await supabase
+      const { error: ciErr } = await supabase
         .from('check_ins')
         .insert([record])
 
-      // Obtener ID de Jornada activa
+      if (ciErr) {
+        console.warn('Error al insertar check_in de cambio de terminal:', ciErr)
+      }
+
+      // 3. Obtener o crear ID de Jornada activa para el día
+      let jornadaId = null
       const { data: activeJornada } = await supabase
         .from('jornadas')
         .select('id')
@@ -124,10 +136,25 @@ function AppContent() {
         .eq('status', 'EN_PROGRESO')
         .limit(1)
 
-      const jornadaId = activeJornada?.[0]?.id || null
+      if (activeJornada && activeJornada.length > 0) {
+        jornadaId = activeJornada[0].id
+      } else {
+        const { data: newJornada } = await supabase
+          .from('jornadas')
+          .insert([{
+            supervisor_id: validUserId,
+            date: today,
+            start_time: new Date().toISOString(),
+            status: 'EN_PROGRESO'
+          }])
+          .select()
+        if (newJornada && newJornada.length > 0) {
+          jornadaId = newJornada[0].id
+        }
+      }
 
-      // Crear nueva estancia activa
-      await supabase
+      // 4. Crear nueva estancia activa en DB
+      const { error: newEstErr } = await supabase
         .from('estancias')
         .insert([{
           jornada_id: jornadaId,
@@ -135,6 +162,10 @@ function AppContent() {
           entry_time: new Date().toISOString(),
           status: 'ACTIVA'
         }])
+
+      if (newEstErr) {
+        console.error('Error al insertar nueva estancia activa en Supabase:', newEstErr)
+      }
     } catch (err) {
       console.warn('Error al registrar cambio de terminal en DB:', err)
     }

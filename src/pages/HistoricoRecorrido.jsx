@@ -81,7 +81,7 @@ export default function HistoricoRecorrido() {
         type: 'CHECK_IN_INICIAL',
         title: 'ENTRADA',
         terminal: firstCI.terminal_name,
-        time: firstTime.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
+        time: firstTime.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
       })
 
       filteredCheckIns.forEach((ci, idx) => {
@@ -109,7 +109,7 @@ export default function HistoricoRecorrido() {
           : '(sin cierre)'
 
         const exitTimeStr = exitTime
-          ? exitTime.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
+          ? exitTime.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
           : 'En curso'
 
         // Notas y evidencias exclusivamente desde Supabase DB
@@ -132,7 +132,7 @@ export default function HistoricoRecorrido() {
           id: `stay-${idx}`,
           type: 'ESTANCIA',
           terminal: ci.terminal_name,
-          timeRange: `${entryTime.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })} - ${exitTimeStr}`,
+          timeRange: `${entryTime.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' })} - ${exitTimeStr}`,
           duration: durationStr,
           notes: savedNotes,
           photos
@@ -150,7 +150,7 @@ export default function HistoricoRecorrido() {
       const lastCI = filteredCheckIns[filteredCheckIns.length - 1]
       if (!isDayCurrentlyActive) {
         const salidaTimeStr = activeJornada?.end_time
-          ? new Date(activeJornada.end_time).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
+          ? new Date(activeJornada.end_time).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
           : '—'
 
         generatedEvents.push({
