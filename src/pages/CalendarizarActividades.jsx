@@ -31,8 +31,7 @@ const DAY_LABELS = ['LUN', 'MAR', 'MIÉ', 'JUE', 'VIE', 'SÁB', 'DOM']
 export default function CalendarizarActividades() {
   const currentDate = useMemo(() => new Date(), [])
   const currentYear = currentDate.getFullYear()
-  
-  // Reconocimiento Automático del Mes Actual al Cargar
+
   const [selectedMonth, setSelectedMonth] = useState(() => MESES[currentDate.getMonth()])
   const [selectedWeekIdx, setSelectedWeekIdx] = useState(() => {
     const day = currentDate.getDate()
@@ -42,8 +41,6 @@ export default function CalendarizarActividades() {
     if (day <= 28) return 3
     return 4
   })
-
-  // Calcular la semana de días reales (Lunes a Domingo) en base al calendario real del año
   const weekDays = useMemo(() => {
     const monthIdx = MESES.indexOf(selectedMonth)
     const startDayNum = selectedWeekIdx * 7 + 1
@@ -51,7 +48,7 @@ export default function CalendarizarActividades() {
     const targetDay = Math.min(startDayNum, daysInMonth)
 
     const baseDate = new Date(currentYear, monthIdx, targetDay)
-    const dayOfWeek = baseDate.getDay() // 0: Dom, 1: Lun, ..., 6: Sáb
+    const dayOfWeek = baseDate.getDay()
     const distanceToMonday = dayOfWeek === 0 ? -6 : 1 - dayOfWeek
 
     const monday = new Date(baseDate)
@@ -76,14 +73,13 @@ export default function CalendarizarActividades() {
   const [terminal, setTerminal] = useState(TERMINALES_CATALOGO[0])
   const [departamento, setDepartamento] = useState('Recaudación')
   const [actividad, setActividad] = useState('Limpieza Profunda')
-  
+
   const [tasks, setTasks] = useState([
     { id: 't-1', title: 'Limpieza Profunda', subtitle: 'Dpto. Recaudación, Terminal Pípila', month: selectedMonth, dateStr: weekDays[0]?.fullDateStr },
     { id: 't-2', title: 'Inspección de Seguridad', subtitle: 'Despacho, Terminal Vicente Guerrero', month: selectedMonth, dateStr: weekDays[1]?.fullDateStr }
   ])
   const [savedMsg, setSavedMsg] = useState('')
 
-  // Actualizar día seleccionado por defecto al cambiar la semana
   useEffect(() => {
     if (weekDays && weekDays.length > 0) {
       setSelectedDayObj(weekDays[0])
@@ -108,7 +104,6 @@ export default function CalendarizarActividades() {
   const handleSavePlanning = async () => {
     setSavedMsg('')
     try {
-      // Guardar planeación en Supabase DB
       const records = tasks.map(t => ({
         scheduled_date: t.dateStr || `${currentYear}-09-01`,
         activity_type: t.title,
@@ -135,7 +130,6 @@ export default function CalendarizarActividades() {
         <h2>Calendarizar Actividades</h2>
         <p className="subtitle">Selección automática del mes actual ({selectedMonth} {currentYear}) y pasarela de Lunes a Domingo del calendario real.</p>
 
-        {/* Month & Week Selectors */}
         <div className="filters-row margin-v">
           <div className="filter-group">
             <label>MES</label>

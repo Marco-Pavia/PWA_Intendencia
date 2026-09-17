@@ -36,7 +36,7 @@ export async function exportToPDF(elementId, title = 'Reporte Quincenal') {
 
     const canvas = await html2canvas(element, { scale: 2, useCORS: true })
     const imgData = canvas.toDataURL('image/png')
-    
+
     const pdf = new jsPDF('p', 'mm', 'a4')
     const imgWidth = 210
     const pageHeight = 295

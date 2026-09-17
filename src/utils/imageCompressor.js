@@ -1,15 +1,7 @@
 import imageCompression from 'browser-image-compression'
-
-/**
- * Convierte y comprime cualquier imagen (Blob, File o Data URL) a formato .webp en el cliente.
- * @param {File | Blob | string} imageInput - Archivo de imagen o dataUrl
- * @param {Object} options - Opciones de compresión opcionales
- * @returns {Promise<File>} Archivo comprimido en formato .webp (image/webp)
- */
 export async function convertAndCompressToWebP(imageInput, options = {}) {
   let fileToCompress = imageInput
 
-  // Si se recibe un dataURL (base64 de la cámara), convertirlo a File
   if (typeof imageInput === 'string' && imageInput.startsWith('data:')) {
     fileToCompress = dataURLtoFile(imageInput, `photo_${Date.now()}.png`)
   }
@@ -24,12 +16,10 @@ export async function convertAndCompressToWebP(imageInput, options = {}) {
   }
 
   try {
-    // Intentar comprimir usando browser-image-compression a formato image/webp
     const compressedBlob = await imageCompression(fileToCompress, defaultOptions)
-    
-    // Asegurar que el nombre del archivo tenga extensión .webp y tipo image/webp
+
     const webpFileName = (fileToCompress.name || `capture_${Date.now()}`).replace(/\.[^/.]+$/, "") + ".webp"
-    
+
     const webpFile = new File([compressedBlob], webpFileName, {
       type: 'image/webp',
       lastModified: Date.now()
@@ -42,15 +32,11 @@ export async function convertAndCompressToWebP(imageInput, options = {}) {
     return await convertToWebPViaCanvas(fileToCompress)
   }
 }
-
-/**
- * Fallback utilitario con HTML5 Canvas para convertir imágenes a .webp
- */
 async function convertToWebPViaCanvas(file) {
   return new Promise((resolve, reject) => {
     const img = new Image()
     const url = URL.createObjectURL(file)
-    
+
     img.onload = () => {
       URL.revokeObjectURL(url)
       const canvas = document.createElement('canvas')
@@ -90,15 +76,10 @@ async function convertToWebPViaCanvas(file) {
         0.8
       )
     }
-
     img.onerror = (err) => reject(err)
     img.src = url
   })
 }
-
-/**
- * Convierte una cadena DataURL (base64) a un objeto File de JS
- */
 function dataURLtoFile(dataurl, filename) {
   const arr = dataurl.split(',')
   const mime = arr[0].match(/:(.*?);/)[1]

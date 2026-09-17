@@ -118,7 +118,7 @@ export default function CheckIn({ onCheckInSuccess }) {
   // 2. Control de Cámara (Disparador Nativo en Móvil o Stream WebRTC)
   const startCamera = async () => {
     setErrorMsg('')
-    
+
     // Detectar si es un dispositivo móvil/PWA para activar la cámara nativa inmediatamente sin pantalla en negro
     const isMobile = /Android|webOS|iPhone|iPad|iPod|BlackBerry|IEMobile|Opera Mini/i.test(navigator.userAgent)
     if (isMobile) {
@@ -311,10 +311,6 @@ export default function CheckIn({ onCheckInSuccess }) {
 
   return (
     <div className="checkin-page-container">
-      {/* Visual Indicator of Screen ID */}
-      <div className="screen-tag-bar">
-        PANTALLA 1 · Entrada (Check-In)
-      </div>
 
       {/* Profile & Header Card */}
       <div className="checkin-header-card">
