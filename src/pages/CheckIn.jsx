@@ -15,6 +15,33 @@ const DEFAULT_TERMINALES = [
   'Terminal Actopan'
 ]
 
+const getTerminalIdByName = async (terminalName) => {
+  if (!terminalName) return null
+  try {
+    const { data } = await supabase
+      .from('terminales')
+      .select('id')
+      .eq('name', terminalName)
+      .limit(1)
+
+    if (data && data.length > 0) {
+      return data[0].id
+    }
+
+    const { data: newTerm } = await supabase
+      .from('terminales')
+      .insert([{ name: terminalName, code: `TERM-${Date.now()}` }])
+      .select()
+
+    if (newTerm && newTerm.length > 0) {
+      return newTerm[0].id
+    }
+  } catch (err) {
+    console.warn('Error al resolver terminal_id en CheckIn:', err)
+  }
+  return null
+}
+
 export default function CheckIn({ onCheckInSuccess }) {
   const { user } = useAuth()
 
@@ -288,11 +315,14 @@ export default function CheckIn({ onCheckInSuccess }) {
         }
       }
 
-      // 3. Crear Estancia Activa en DB
+      // 3. Resolver terminal_id obligatorio y crear Estancia Activa en DB
+      const termId = await getTerminalIdByName(selectedTerminal)
+
       let { data: newEstancia, error: estanciaErr } = await supabase
         .from('estancias')
         .insert([{
           jornada_id: activeJornadaId,
+          terminal_id: termId,
           terminal_name: selectedTerminal,
           entry_time: new Date().toISOString(),
           entry_latitude: coords?.latitude || 0,
@@ -301,11 +331,12 @@ export default function CheckIn({ onCheckInSuccess }) {
         }])
         .select()
 
-      if (estanciaErr && activeJornadaId) {
+      if (estanciaErr) {
         console.warn('Reintentando inserción de estancia sin jornada_id:', estanciaErr)
         const retryEst = await supabase
           .from('estancias')
           .insert([{
+            terminal_id: termId,
             terminal_name: selectedTerminal,
             entry_time: new Date().toISOString(),
             entry_latitude: coords?.latitude || 0,

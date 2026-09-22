@@ -11,7 +11,37 @@ import Login from './pages/Login'
 import ResumenHorasCalendario from './pages/ResumenHorasCalendario'
 import ResumenQuincenal from './pages/ResumenQuincenal'
 import VisualizacionActividades from './pages/VisualizacionActividades'
+import { supabase } from './lib/supabaseClient'
 import './App.css'
+
+// Helper para resolver el terminal_id obligatorio por nombre
+export const getTerminalIdByName = async (terminalName) => {
+  if (!terminalName) return null
+  try {
+    const { data } = await supabase
+      .from('terminales')
+      .select('id')
+      .eq('name', terminalName)
+      .limit(1)
+
+    if (data && data.length > 0) {
+      return data[0].id
+    }
+
+    // Fallback: Si no existe la terminal en la BD, se inserta dinámicamente
+    const { data: newTerm } = await supabase
+      .from('terminales')
+      .insert([{ name: terminalName, code: `TERM-${Date.now()}` }])
+      .select()
+
+    if (newTerm && newTerm.length > 0) {
+      return newTerm[0].id
+    }
+  } catch (err) {
+    console.warn('Error al resolver terminal_id:', err)
+  }
+  return null
+}
 
 function AppContent() {
   const { user, role, loading } = useAuth()
@@ -185,11 +215,14 @@ function AppContent() {
         }
       }
 
-      // 4. Crear nueva estancia activa en DB
+      // 4. Obtener terminal_id obligatorio y crear nueva estancia activa en DB
+      const termId = await getTerminalIdByName(newTerminalName)
+
       const { error: newEstErr } = await supabase
         .from('estancias')
         .insert([{
           jornada_id: jornadaId,
+          terminal_id: termId,
           terminal_name: newTerminalName,
           entry_time: new Date().toISOString(),
           status: 'ACTIVA'

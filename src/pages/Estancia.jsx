@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { getTerminalIdByName } from '../App'
 import { supabase } from '../lib/supabaseClient'
 import { convertAndCompressToWebP } from '../utils/imageCompressor'
 
@@ -230,11 +231,13 @@ export default function Estancia({ currentTerminal = 'Terminal Pipila', entryTim
               .limit(1)
 
             let jId = activeJornada?.[0]?.id || null
+            const termId = await getTerminalIdByName(currentTerminal)
 
             let { data: createdEst, error: createEstErr } = await supabase
               .from('estancias')
               .insert([{
                 jornada_id: jId,
+                terminal_id: termId,
                 terminal_name: currentTerminal,
                 entry_time: new Date().toISOString(),
                 status: 'ACTIVA'
@@ -246,6 +249,7 @@ export default function Estancia({ currentTerminal = 'Terminal Pipila', entryTim
               const retryCreated = await supabase
                 .from('estancias')
                 .insert([{
+                  terminal_id: termId,
                   terminal_name: currentTerminal,
                   entry_time: new Date().toISOString(),
                   status: 'ACTIVA'
