@@ -53,58 +53,72 @@ function AppContent() {
 
   // Establecer pantalla inicial según el rol y verificar estado en Supabase DB
   useEffect(() => {
+    let isMounted = true
+
     if (role === ROLES.JEFE) {
       setActiveScreen(4) // Vista Principal del Jefe
-    } else {
-      const checkActiveJornadaDB = async () => {
-        try {
-          const today = new Date().toISOString().slice(0, 10)
-          const { data: activeJornada } = await supabase
-            .from('jornadas')
-            .select('id, status')
-            .eq('date', today)
-            .eq('status', 'EN_PROGRESO')
+      return
+    }
+
+    const checkActiveJornadaDB = async () => {
+      try {
+        const today = new Date().toISOString().slice(0, 10)
+        const { data: activeJornada } = await supabase
+          .from('jornadas')
+          .select('id, status')
+          .eq('date', today)
+          .eq('status', 'EN_PROGRESO')
+          .limit(1)
+
+        if (!isMounted) return
+
+        if (activeJornada && activeJornada.length > 0) {
+          // 1. Verificar si hay estancia ACTIVA
+          const { data: activeEstancia } = await supabase
+            .from('estancias')
+            .select('terminal_name, entry_time')
+            .eq('jornada_id', activeJornada[0].id)
+            .eq('status', 'ACTIVA')
+            .order('created_at', { ascending: false })
             .limit(1)
 
-          if (activeJornada && activeJornada.length > 0) {
-            // 1. Verificar si hay estancia ACTIVA
-            const { data: activeEstancia } = await supabase
-              .from('estancias')
-              .select('terminal_name, entry_time')
-              .eq('jornada_id', activeJornada[0].id)
-              .eq('status', 'ACTIVA')
-              .order('created_at', { ascending: false })
-              .limit(1)
+          if (!isMounted) return
 
-            if (activeEstancia && activeEstancia.length > 0) {
-              setCurrentTerminal(activeEstancia[0].terminal_name)
-              const timeFormatted = new Date(activeEstancia[0].entry_time).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-              setEntryTimeStr(timeFormatted)
-              setActiveScreen(2)
-              return
-            }
-
-            // 2. Si hay jornada activa pero la estancia previa fue finalizada (en traslao/cambio de terminal)
-            const { data: latestEstancia } = await supabase
-              .from('estancias')
-              .select('terminal_name')
-              .eq('jornada_id', activeJornada[0].id)
-              .order('created_at', { ascending: false })
-              .limit(1)
-
-            if (latestEstancia && latestEstancia.length > 0) {
-              setCurrentTerminal(latestEstancia[0].terminal_name)
-              setActiveScreen(3) // Redirigir a Cambio de Terminal
-              return
-            }
+          if (activeEstancia && activeEstancia.length > 0) {
+            setCurrentTerminal(activeEstancia[0].terminal_name)
+            const timeFormatted = new Date(activeEstancia[0].entry_time).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+            setEntryTimeStr(timeFormatted)
+            setActiveScreen(2)
+            return
           }
-          setActiveScreen(1)
-        } catch (e) {
-          console.warn('Error al verificar jornada en DB:', e)
-          setActiveScreen(1)
+
+          // 2. Si hay jornada activa pero la estancia previa fue finalizada (en traslado/cambio de terminal)
+          const { data: latestEstancia } = await supabase
+            .from('estancias')
+            .select('terminal_name')
+            .eq('jornada_id', activeJornada[0].id)
+            .order('created_at', { ascending: false })
+            .limit(1)
+
+          if (!isMounted) return
+
+          if (latestEstancia && latestEstancia.length > 0) {
+            setCurrentTerminal(latestEstancia[0].terminal_name)
+            setActiveScreen(3) // Redirigir a Cambio de Terminal
+            return
+          }
         }
+        if (isMounted) setActiveScreen(1)
+      } catch (e) {
+        console.warn('Error al verificar jornada en DB:', e)
+        if (isMounted) setActiveScreen(1)
       }
-      checkActiveJornadaDB()
+    }
+
+    checkActiveJornadaDB()
+
+    return () => {
+      isMounted = false
     }
   }, [role])
 
