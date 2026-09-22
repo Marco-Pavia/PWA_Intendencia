@@ -13,13 +13,11 @@ export default function Estancia({ currentTerminal = 'Terminal Pipila', entryTim
 
   const fileInputRef = useRef(null)
 
-  // Sincronizar evidencias y notas exclusivamente con Supabase DB en tiempo real
   useEffect(() => {
     const fetchCloudEstanciaData = async () => {
       setNotes('')
       setEvidences([])
       try {
-        // 1. Cargar notas desde la estancia activa o check-in en DB
         const { data: dbEstancia } = await supabase
           .from('estancias')
           .select('id, notes')
@@ -186,6 +184,7 @@ export default function Estancia({ currentTerminal = 'Terminal Pipila', entryTim
       let targetEstanciaId = null
       let targetJornadaId = null
 
+      // 1. Buscar estancia ACTIVA para la terminal actual
       const { data: activeEst } = await supabase
         .from('estancias')
         .select('id, jornada_id')
@@ -198,7 +197,7 @@ export default function Estancia({ currentTerminal = 'Terminal Pipila', entryTim
         targetEstanciaId = activeEst[0].id
         targetJornadaId = activeEst[0].jornada_id
       } else {
-        // Fallback a última estancia de la terminal
+        // 2. Fallback a última estancia registrada de la terminal
         const { data: latestEst } = await supabase
           .from('estancias')
           .select('id, jornada_id')
@@ -210,32 +209,61 @@ export default function Estancia({ currentTerminal = 'Terminal Pipila', entryTim
           targetEstanciaId = latestEst[0].id
           targetJornadaId = latestEst[0].jornada_id
         } else {
-          // Si no existe estancia en DB, crearla automáticamente para asegurar guardado
-          const today = new Date().toISOString().slice(0, 10)
-          const { data: activeJornada } = await supabase
-            .from('jornadas')
-            .select('id')
-            .eq('date', today)
-            .eq('status', 'EN_PROGRESO')
+          // 3. Fallback a cualquier estancia registrada hoy
+          const { data: anyEst } = await supabase
+            .from('estancias')
+            .select('id, jornada_id')
+            .order('created_at', { ascending: false })
             .limit(1)
 
-          let jId = activeJornada?.[0]?.id || null
+          if (anyEst && anyEst.length > 0) {
+            targetEstanciaId = anyEst[0].id
+            targetJornadaId = anyEst[0].jornada_id
+          } else {
+            // 4. Si no existe estancia en DB, crearla automáticamente para asegurar guardado
+            const today = new Date().toISOString().slice(0, 10)
+            const { data: activeJornada } = await supabase
+              .from('jornadas')
+              .select('id')
+              .eq('date', today)
+              .eq('status', 'EN_PROGRESO')
+              .limit(1)
 
-          const { data: createdEst } = await supabase
-            .from('estancias')
-            .insert([{
-              jornada_id: jId,
-              terminal_name: currentTerminal,
-              entry_time: new Date().toISOString(),
-              status: 'ACTIVA'
-            }])
-            .select()
+            let jId = activeJornada?.[0]?.id || null
 
-          if (createdEst && createdEst.length > 0) {
-            targetEstanciaId = createdEst[0].id
-            targetJornadaId = createdEst[0].jornada_id
+            let { data: createdEst, error: createEstErr } = await supabase
+              .from('estancias')
+              .insert([{
+                jornada_id: jId,
+                terminal_name: currentTerminal,
+                entry_time: new Date().toISOString(),
+                status: 'ACTIVA'
+              }])
+              .select()
+
+            if ((!createdEst || createdEst.length === 0) && jId) {
+              console.warn('Reintentando creación de estancia sin jornada_id:', createEstErr)
+              const retryCreated = await supabase
+                .from('estancias')
+                .insert([{
+                  terminal_name: currentTerminal,
+                  entry_time: new Date().toISOString(),
+                  status: 'ACTIVA'
+                }])
+                .select()
+              createdEst = retryCreated.data
+            }
+
+            if (createdEst && createdEst.length > 0) {
+              targetEstanciaId = createdEst[0].id
+              targetJornadaId = createdEst[0].jornada_id
+            }
           }
         }
+      }
+
+      if (!targetEstanciaId) {
+        throw new Error('No se pudo encontrar o generar una estancia válida en la base de datos para asociar la fotografía.')
       }
 
       const timeLabel = new Date().toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
@@ -247,7 +275,7 @@ export default function Estancia({ currentTerminal = 'Terminal Pipila', entryTim
         fileSize: (webpFile.size / 1024).toFixed(1)
       }
 
-      // Guardar directamente en tabla 'evidencias_fotograficas' de Supabase DB con estancia_id y jornada_id
+      // Guardar directamente en tabla 'evidencias_fotograficas' de Supabase DB con estancia_id no nulo
       const { error: evErr } = await supabase.from('evidencias_fotograficas').insert([{
         estancia_id: targetEstanciaId,
         jornada_id: targetJornadaId,

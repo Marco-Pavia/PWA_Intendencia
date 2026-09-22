@@ -260,7 +260,7 @@ export default function CheckIn({ onCheckInSuccess }) {
       if (existingJornadas && existingJornadas.length > 0) {
         activeJornadaId = existingJornadas[0].id
       } else {
-        const { data: newJornada, error: newJornadaErr } = await supabase
+        let { data: newJornada, error: newJornadaErr } = await supabase
           .from('jornadas')
           .insert([{
             supervisor_id: validUserId,
@@ -270,8 +270,17 @@ export default function CheckIn({ onCheckInSuccess }) {
           }])
           .select()
 
-        if (newJornadaErr) {
-          console.warn('Error al insertar nueva jornada en Supabase:', newJornadaErr)
+        if (newJornadaErr && validUserId) {
+          console.warn('Reintentando inserción de jornada sin supervisor_id:', newJornadaErr)
+          const retryRes = await supabase
+            .from('jornadas')
+            .insert([{
+              date: today,
+              start_time: new Date().toISOString(),
+              status: 'EN_PROGRESO'
+            }])
+            .select()
+          newJornada = retryRes.data
         }
 
         if (newJornada && newJornada.length > 0) {
@@ -280,7 +289,7 @@ export default function CheckIn({ onCheckInSuccess }) {
       }
 
       // 3. Crear Estancia Activa en DB
-      const { data: newEstancia, error: estanciaErr } = await supabase
+      let { data: newEstancia, error: estanciaErr } = await supabase
         .from('estancias')
         .insert([{
           jornada_id: activeJornadaId,
@@ -292,17 +301,30 @@ export default function CheckIn({ onCheckInSuccess }) {
         }])
         .select()
 
-      if (estanciaErr) {
-        console.error('Error al insertar estancia activa en Supabase:', estanciaErr)
+      if (estanciaErr && activeJornadaId) {
+        console.warn('Reintentando inserción de estancia sin jornada_id:', estanciaErr)
+        const retryEst = await supabase
+          .from('estancias')
+          .insert([{
+            terminal_name: selectedTerminal,
+            entry_time: new Date().toISOString(),
+            entry_latitude: coords?.latitude || 0,
+            entry_longitude: coords?.longitude || 0,
+            status: 'ACTIVA'
+          }])
+          .select()
+        newEstancia = retryEst.data
       }
 
-      // 4. Guardar evidencia inicial de Check-In si hay foto
-      if (photoUrl) {
+      const estanciaIdCreated = newEstancia?.[0]?.id || null
+
+      // 4. Guardar evidencia inicial de Check-In si hay foto y estancia_id válida
+      if (photoUrl && estanciaIdCreated) {
         const { error: evErr } = await supabase
           .from('evidencias_fotograficas')
           .insert([{
             jornada_id: activeJornadaId,
-            estancia_id: newEstancia?.[0]?.id || null,
+            estancia_id: estanciaIdCreated,
             photo_url: photoUrl,
             category: 'CHECK_IN',
             label: `${selectedTerminal} - Foto Entrada Check-In`
