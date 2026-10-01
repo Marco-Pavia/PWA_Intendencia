@@ -39,7 +39,7 @@ export default function DashboardPlaceholder({ currentScreen, onSelectScreen }) 
             <p>{s.desc}</p>
             {s.id === 1 ? (
               <button type="button" className="btn-access active-btn">
-                Ir a Pantalla 1 (Desarrollada) →
+
               </button>
             ) : (
               <span className="upcoming-tag">Fase Próxima ({s.name})</span>

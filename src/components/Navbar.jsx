@@ -88,11 +88,11 @@ export default function Navbar({ currentScreen, onSelectScreen }) {
 
       {/* Slide-out Drawer Navigation Overlay */}
       {menuOpen && <div className="drawer-backdrop" onClick={() => setMenuOpen(false)} />}
-      
+
       <div className={`navigation-drawer ${menuOpen ? 'open' : ''}`}>
         <div className="drawer-header">
           <div className="drawer-role-tag">
-            {isSupervisora ? '👩‍💼 Módulo Jefa de Intendencia' : '👨‍💼 Módulo Jefe Inmediato'}
+            {isSupervisora ? 'Módulo Jefa de Intendencia' : 'Módulo Jefe Inmediato'}
           </div>
           <button type="button" className="drawer-close-btn" onClick={() => setMenuOpen(false)}>
             ✕
@@ -108,7 +108,7 @@ export default function Navbar({ currentScreen, onSelectScreen }) {
                 className={`drawer-item ${currentScreen === 8 ? 'active' : ''}`}
                 onClick={() => handleNavigate(8)}
               >
-                <span className="screen-badge">P8</span>
+                <span className="screen-badge"></span>
                 📅 Calendarizar Actividades
               </button>
             </>
@@ -120,7 +120,7 @@ export default function Navbar({ currentScreen, onSelectScreen }) {
                 className={`drawer-item ${currentScreen === 4 ? 'active' : ''}`}
                 onClick={() => handleNavigate(4)}
               >
-                <span className="screen-badge">P4</span>
+                <span className="screen-badge"></span>
                 📊 Estatus de Jornada (Tiempo Real)
               </button>
 
@@ -129,7 +129,7 @@ export default function Navbar({ currentScreen, onSelectScreen }) {
                 className={`drawer-item ${currentScreen === 5 ? 'active' : ''}`}
                 onClick={() => handleNavigate(5)}
               >
-                <span className="screen-badge">P5</span>
+                <span className="screen-badge"></span>
                 📜 Histórico de Recorrido
               </button>
 
@@ -139,7 +139,7 @@ export default function Navbar({ currentScreen, onSelectScreen }) {
                 className={`drawer-item ${currentScreen === 6 ? 'active' : ''}`}
                 onClick={() => handleNavigate(6)}
               >
-                <span className="screen-badge">P6</span>
+                <span className="screen-badge"></span>
                 📈 Resumen Quincenal (Reportes PDF/Excel)
               </button>
 
@@ -148,7 +148,7 @@ export default function Navbar({ currentScreen, onSelectScreen }) {
                 className={`drawer-item ${currentScreen === 7 ? 'active' : ''}`}
                 onClick={() => handleNavigate(7)}
               >
-                <span className="screen-badge">P7</span>
+                <span className="screen-badge"></span>
                 🗓️ Resumen de Horas (Calendario)
               </button>
 
@@ -157,7 +157,7 @@ export default function Navbar({ currentScreen, onSelectScreen }) {
                 className={`drawer-item ${currentScreen === 9 ? 'active' : ''}`}
                 onClick={() => handleNavigate(9)}
               >
-                <span className="screen-badge">P9</span>
+                <span className="screen-badge"></span>
                 📋 Visualización de Actividades Cargadas
               </button>
             </>
