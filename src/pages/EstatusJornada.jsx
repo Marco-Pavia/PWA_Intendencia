@@ -81,10 +81,9 @@ export default function EstatusJornada() {
           return ta - tb
         })
 
-      // Determinar si la jornada de hoy está activa en DB
+      // Determinar si la jornada de hoy está activa en DB (o en progreso por defecto si hay actividad hoy)
       const isDayCurrentlyActive = selectedDate === today &&
-        activeJornada &&
-        activeJornada.status === 'EN_PROGRESO'
+        (!activeJornada || activeJornada.status === 'EN_PROGRESO')
 
       let totalMinutesAccumulated = 0
       const now = new Date()
@@ -93,33 +92,43 @@ export default function EstatusJornada() {
       if (filteredCheckIns.length > 0) {
         filteredCheckIns.forEach((ci, idx) => {
           const ciTime = new Date(ci.check_in_time || ci.created_at || Date.now())
+          const ciTimeMs = ciTime.getTime()
           const timeFormatted = ciTime.toLocaleTimeString('es-ES', {
             hour: '2-digit',
             minute: '2-digit',
             second: '2-digit'
           })
 
-          // Buscar notas y estancia correspondiente en DB para esta terminal y fecha
-          const estanciaMatch = (dbEstancias || []).find(e =>
-            e.terminal_name === ci.terminal_name &&
-            (e.created_at?.slice(0, 10) === selectedDate || e.entry_time?.slice(0, 10) === selectedDate)
-          )
+          // Buscar la estancia correspondiente en DB para este check-in por proximidad de tiempo en la fecha elegida
+          const estanciaMatch = (dbEstancias || [])
+            .filter(e =>
+              e.terminal_name === ci.terminal_name &&
+              (e.created_at?.slice(0, 10) === selectedDate || e.entry_time?.slice(0, 10) === selectedDate)
+            )
+            .sort((a, b) => {
+              const ta = new Date(a.entry_time || a.created_at).getTime()
+              const tb = new Date(b.entry_time || b.created_at).getTime()
+              return Math.abs(ta - ciTimeMs) - Math.abs(tb - ciTimeMs)
+            })[0] || null
 
           const isLastCheckIn = idx === filteredCheckIns.length - 1
+          const nextCi = !isLastCheckIn ? filteredCheckIns[idx + 1] : null
+          const nextCiTime = nextCi ? new Date(nextCi.check_in_time || nextCi.created_at) : null
+
           let segmentEndTime
 
           if (estanciaMatch && estanciaMatch.status === 'FINALIZADA' && estanciaMatch.exit_time) {
             segmentEndTime = new Date(estanciaMatch.exit_time)
           } else if (estanciaMatch && estanciaMatch.status === 'ACTIVA') {
             segmentEndTime = now
-          } else if (!isLastCheckIn) {
-            segmentEndTime = new Date(filteredCheckIns[idx + 1].check_in_time || filteredCheckIns[idx + 1].created_at)
+          } else if (nextCiTime) {
+            segmentEndTime = nextCiTime
           } else if (isDayCurrentlyActive) {
             segmentEndTime = now
           } else if (activeJornada && activeJornada.end_time) {
             segmentEndTime = new Date(activeJornada.end_time)
           } else {
-            segmentEndTime = ciTime
+            segmentEndTime = now
           }
 
           const segmentMinutes = Math.max(0, Math.round((segmentEndTime - ciTime) / 60000))
@@ -148,12 +157,19 @@ export default function EstatusJornada() {
             return true
           })
 
+          const resolvedStatusTag = estanciaMatch?.status === 'FINALIZADA'
+            ? 'Salida Registrada'
+            : (estanciaMatch?.status === 'ACTIVA'
+                ? (idx === 0 ? 'Entrada Registrada' : 'En Estancia')
+                : (idx === 0 ? 'Entrada Registrada' : (isLastCheckIn ? 'En Estancia' : 'Salida Registrada'))
+              )
+
           generatedTimeline.unshift({
             id: ci.id || `ci-${idx}`,
             time: timeFormatted,
             terminal: ci.terminal_name,
             type: idx === 0 ? 'CHECK_IN_INICIAL' : 'CAMBIO_TERMINAL',
-            statusTag: estanciaMatch?.status === 'FINALIZADA' ? 'Salida Registrada' : (idx === 0 ? 'Entrada Registrada' : 'En Estancia'),
+            statusTag: resolvedStatusTag,
             notes: notesResolved,
             photos: allPhotos
           })

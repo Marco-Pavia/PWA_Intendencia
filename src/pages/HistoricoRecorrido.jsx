@@ -88,11 +88,19 @@ export default function HistoricoRecorrido() {
         const entryTime = new Date(ci.check_in_time || ci.created_at)
         const isLast = idx === filteredCheckIns.length - 1
 
-        // Notas y estancia correspondiente en DB para la fecha consultada
-        const estanciaMatch = (dbEstancias || []).find(e =>
-          e.terminal_name === ci.terminal_name &&
-          (e.created_at?.substring(0, 10) === targetDate || e.entry_time?.substring(0, 10) === targetDate)
-        )
+        const entryTimeMs = entryTime.getTime()
+
+        // Notas y estancia correspondiente en DB para la fecha consultada (por proximidad temporal)
+        const estanciaMatch = (dbEstancias || [])
+          .filter(e =>
+            e.terminal_name === ci.terminal_name &&
+            (e.created_at?.substring(0, 10) === targetDate || e.entry_time?.substring(0, 10) === targetDate)
+          )
+          .sort((a, b) => {
+            const ta = new Date(a.entry_time || a.created_at).getTime()
+            const tb = new Date(b.entry_time || b.created_at).getTime()
+            return Math.abs(ta - entryTimeMs) - Math.abs(tb - entryTimeMs)
+          })[0] || null
 
         let exitTime
         if (estanciaMatch && estanciaMatch.exit_time) {

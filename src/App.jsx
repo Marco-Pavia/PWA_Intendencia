@@ -215,7 +215,7 @@ function AppContent() {
       if (activeJornada && activeJornada.length > 0) {
         jornadaId = activeJornada[0].id
       } else {
-        const { data: newJornada } = await supabase
+        let { data: newJornada, error: newJornadaErr } = await supabase
           .from('jornadas')
           .insert([{
             supervisor_id: validUserId,
@@ -224,6 +224,19 @@ function AppContent() {
             status: 'EN_PROGRESO'
           }])
           .select()
+
+        if (newJornadaErr && validUserId) {
+          const retryJ = await supabase
+            .from('jornadas')
+            .insert([{
+              date: today,
+              start_time: new Date().toISOString(),
+              status: 'EN_PROGRESO'
+            }])
+            .select()
+          newJornada = retryJ.data
+        }
+
         if (newJornada && newJornada.length > 0) {
           jornadaId = newJornada[0].id
         }
@@ -232,7 +245,7 @@ function AppContent() {
       // 4. Obtener terminal_id obligatorio y crear nueva estancia activa en DB
       const termId = await getTerminalIdByName(newTerminalName)
 
-      const { error: newEstErr } = await supabase
+      let { data: newEst, error: newEstErr } = await supabase
         .from('estancias')
         .insert([{
           jornada_id: jornadaId,
@@ -241,9 +254,18 @@ function AppContent() {
           entry_time: new Date().toISOString(),
           status: 'ACTIVA'
         }])
+        .select()
 
       if (newEstErr) {
-        console.error('Error al insertar nueva estancia activa en Supabase:', newEstErr)
+        console.warn('Reintentando inserción de estancia sin jornada_id:', newEstErr)
+        await supabase
+          .from('estancias')
+          .insert([{
+            terminal_id: termId,
+            terminal_name: newTerminalName,
+            entry_time: new Date().toISOString(),
+            status: 'ACTIVA'
+          }])
       }
     } catch (err) {
       console.warn('Error al registrar cambio de terminal en DB:', err)
