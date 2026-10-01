@@ -88,10 +88,10 @@ export default function HistoricoRecorrido() {
         const entryTime = new Date(ci.check_in_time || ci.created_at)
         const isLast = idx === filteredCheckIns.length - 1
 
-        // Notas y estancia correspondiente en DB
+        // Notas y estancia correspondiente en DB para la fecha consultada
         const estanciaMatch = (dbEstancias || []).find(e =>
           e.terminal_name === ci.terminal_name &&
-          (e.status === 'FINALIZADA' || e.status === 'ACTIVA')
+          (e.created_at?.substring(0, 10) === targetDate || e.entry_time?.substring(0, 10) === targetDate)
         )
 
         let exitTime
@@ -122,11 +122,15 @@ export default function HistoricoRecorrido() {
 
         const savedNotes = ci.notes || estanciaMatch?.notes || null
 
+        // Evidencias de Supabase DB que coincidan estrictamente con la estancia o fecha consultada
         const dbEvMatch = (dbEvidencias || [])
-          .filter(ev =>
-            (ev.label && ev.label.includes(ci.terminal_name)) ||
-            (estanciaMatch && ev.estancia_id === estanciaMatch.id)
-          )
+          .filter(ev => {
+            const evDate = ev.created_at ? ev.created_at.substring(0, 10) : null
+            const matchesEstancia = estanciaMatch && ev.estancia_id === estanciaMatch.id
+            const matchesJornada = activeJornada && ev.jornada_id === activeJornada.id && ev.label && ev.label.includes(ci.terminal_name)
+            const matchesTerminalDate = evDate === targetDate && ev.label && ev.label.includes(ci.terminal_name)
+            return matchesEstancia || matchesJornada || matchesTerminalDate
+          })
           .map(ev => ({ label: ev.label || `${ci.terminal_name} - Evidencia`, photo_url: ev.photo_url }))
 
         const entryPhoto = ci.photo_url ? [{ label: 'Foto Check-In', photo_url: ci.photo_url }] : []

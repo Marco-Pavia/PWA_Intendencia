@@ -127,12 +127,15 @@ export default function EstatusJornada() {
 
           const notesResolved = ci.notes || estanciaMatch?.notes || null
 
-          // Evidencias de Supabase DB que coincidan por terminal_name, estancia_id o jornada_id
+          // Evidencias de Supabase DB que coincidan estrictamente por la estancia, jornada o fecha seleccionada
           const dbEvMatch = (dbEvidencias || [])
-            .filter(ev =>
-              (ev.label && ev.label.includes(ci.terminal_name)) ||
-              (estanciaMatch && ev.estancia_id === estanciaMatch.id)
-            )
+            .filter(ev => {
+              const evDate = ev.created_at ? ev.created_at.substring(0, 10) : null
+              const matchesEstancia = estanciaMatch && ev.estancia_id === estanciaMatch.id
+              const matchesJornada = activeJornada && ev.jornada_id === activeJornada.id && ev.label && ev.label.includes(ci.terminal_name)
+              const matchesTerminalDate = evDate === selectedDate && ev.label && ev.label.includes(ci.terminal_name)
+              return matchesEstancia || matchesJornada || matchesTerminalDate
+            })
             .map(ev => ({ label: ev.label || `${ci.terminal_name} - Evidencia`, photo_url: ev.photo_url }))
 
           // Combinar foto de check-in con evidencias DB

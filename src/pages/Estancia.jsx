@@ -19,30 +19,41 @@ export default function Estancia({ currentTerminal = 'Terminal Pipila', entryTim
       setNotes('')
       setEvidences([])
       try {
+        const today = new Date().toISOString().substring(0, 10)
+
+        // 1. Obtener estancias para la terminal actual
         const { data: dbEstancia } = await supabase
           .from('estancias')
-          .select('id, notes')
+          .select('id, notes, created_at, entry_time, status')
           .eq('terminal_name', currentTerminal)
           .order('created_at', { ascending: false })
-          .limit(1)
 
-        if (dbEstancia && dbEstancia.length > 0 && dbEstancia[0].notes) {
-          setNotes(dbEstancia[0].notes.substring(0, MAX_NOTES_LENGTH))
+        const estanciaHoy = (dbEstancia || []).find(e =>
+          e.status === 'ACTIVA' ||
+          e.created_at?.substring(0, 10) === today ||
+          e.entry_time?.substring(0, 10) === today
+        )
+
+        if (estanciaHoy && estanciaHoy.notes) {
+          setNotes(estanciaHoy.notes.substring(0, MAX_NOTES_LENGTH))
         } else {
-          // Fallback a check_ins
+          // Fallback a check_ins de HOY
           const { data: dbCheckIns } = await supabase
             .from('check_ins')
-            .select('id, notes')
+            .select('id, notes, check_in_time, created_at')
             .eq('terminal_name', currentTerminal)
             .order('check_in_time', { ascending: false })
-            .limit(1)
 
-          if (dbCheckIns && dbCheckIns.length > 0 && dbCheckIns[0].notes) {
-            setNotes(dbCheckIns[0].notes.substring(0, MAX_NOTES_LENGTH))
+          const ciHoy = (dbCheckIns || []).find(ci =>
+            (ci.check_in_time || ci.created_at)?.substring(0, 10) === today
+          )
+
+          if (ciHoy && ciHoy.notes) {
+            setNotes(ciHoy.notes.substring(0, MAX_NOTES_LENGTH))
           }
         }
 
-        // 2. Cargar evidencias fotográficas y fotos de check-in de la terminal en DB
+        // 2. Cargar evidencias fotográficas y fotos de check-in de la terminal en DB (SOLO DE HOY)
         const { data: dbEvidencias } = await supabase
           .from('evidencias_fotograficas')
           .select('*')
@@ -50,7 +61,7 @@ export default function Estancia({ currentTerminal = 'Terminal Pipila', entryTim
 
         const { data: ciPhotos } = await supabase
           .from('check_ins')
-          .select('photo_url, terminal_name, check_in_time')
+          .select('photo_url, terminal_name, check_in_time, created_at')
           .eq('terminal_name', currentTerminal)
           .order('check_in_time', { ascending: false })
 
@@ -59,7 +70,8 @@ export default function Estancia({ currentTerminal = 'Terminal Pipila', entryTim
 
         if (ciPhotos && ciPhotos.length > 0) {
           ciPhotos.forEach(ci => {
-            if (ci.photo_url && !seenUrls.has(ci.photo_url)) {
+            const ciDate = (ci.check_in_time || ci.created_at)?.substring(0, 10)
+            if (ciDate === today && ci.photo_url && !seenUrls.has(ci.photo_url)) {
               seenUrls.add(ci.photo_url)
               loadedEvs.push({
                 id: `ci-photo-${ci.check_in_time}`,
@@ -73,10 +85,11 @@ export default function Estancia({ currentTerminal = 'Terminal Pipila', entryTim
 
         if (dbEvidencias && dbEvidencias.length > 0) {
           dbEvidencias.forEach((ev, idx) => {
-            const matchesTerminal = (ev.label && ev.label.includes(currentTerminal)) ||
-              (dbEstancia && dbEstancia.length > 0 && ev.estancia_id === dbEstancia[0].id)
+            const evDate = ev.created_at ? ev.created_at.substring(0, 10) : null
+            const matchesEstanciaHoy = estanciaHoy && ev.estancia_id === estanciaHoy.id
+            const matchesTerminalToday = evDate === today && ev.label && ev.label.includes(currentTerminal)
 
-            if (matchesTerminal && ev.photo_url && !seenUrls.has(ev.photo_url)) {
+            if ((matchesEstanciaHoy || matchesTerminalToday) && ev.photo_url && !seenUrls.has(ev.photo_url)) {
               seenUrls.add(ev.photo_url)
               loadedEvs.push({
                 id: ev.id || `ev-db-${idx}`,
@@ -97,37 +110,45 @@ export default function Estancia({ currentTerminal = 'Terminal Pipila', entryTim
     fetchCloudEstanciaData()
   }, [currentTerminal])
 
-  // Función de ayuda para respaldar notas en Supabase DB (estancias y check_ins)
+  // Función de ayuda para respaldar notas en Supabase DB (estancias y check_ins de hoy)
   const saveNotesToSupabase = async (notesText) => {
     try {
-      // 1. Obtener ID de la estancia más reciente de esta terminal
+      const today = new Date().toISOString().substring(0, 10)
+
       const { data: latestEst } = await supabase
         .from('estancias')
-        .select('id')
+        .select('id, created_at, entry_time, status')
         .eq('terminal_name', currentTerminal)
         .order('created_at', { ascending: false })
-        .limit(1)
 
-      if (latestEst && latestEst.length > 0) {
+      const targetEst = (latestEst || []).find(e =>
+        e.status === 'ACTIVA' ||
+        e.created_at?.substring(0, 10) === today ||
+        e.entry_time?.substring(0, 10) === today
+      )
+
+      if (targetEst) {
         await supabase
           .from('estancias')
           .update({ notes: notesText, updated_at: new Date().toISOString() })
-          .eq('id', latestEst[0].id)
+          .eq('id', targetEst.id)
       }
 
-      // 2. Actualizar en check_ins
       const { data: latestCI } = await supabase
         .from('check_ins')
-        .select('id')
+        .select('id, check_in_time, created_at')
         .eq('terminal_name', currentTerminal)
         .order('check_in_time', { ascending: false })
-        .limit(1)
 
-      if (latestCI && latestCI.length > 0) {
+      const targetCI = (latestCI || []).find(ci =>
+        (ci.check_in_time || ci.created_at)?.substring(0, 10) === today
+      )
+
+      if (targetCI) {
         await supabase
           .from('check_ins')
           .update({ notes: notesText })
-          .eq('id', latestCI[0].id)
+          .eq('id', targetCI.id)
       }
     } catch (err) {
       console.warn('Error al respaldar notas en Supabase DB:', err)
@@ -181,11 +202,9 @@ export default function Estancia({ currentTerminal = 'Terminal Pipila', entryTim
         console.warn('Subida a storage omitida, usando Base64:', cloudErr)
       }
 
-      // Obtener o garantizar estancia activa para asociar IDs en evidencias fotográficas
       let targetEstanciaId = null
       let targetJornadaId = null
 
-      // 1. Buscar estancia ACTIVA para la terminal actual
       const { data: activeEst } = await supabase
         .from('estancias')
         .select('id, jornada_id')
@@ -193,35 +212,29 @@ export default function Estancia({ currentTerminal = 'Terminal Pipila', entryTim
         .eq('status', 'ACTIVA')
         .order('created_at', { ascending: false })
         .limit(1)
-
       if (activeEst && activeEst.length > 0) {
         targetEstanciaId = activeEst[0].id
         targetJornadaId = activeEst[0].jornada_id
       } else {
-        // 2. Fallback a última estancia registrada de la terminal
         const { data: latestEst } = await supabase
           .from('estancias')
           .select('id, jornada_id')
           .eq('terminal_name', currentTerminal)
           .order('created_at', { ascending: false })
           .limit(1)
-
         if (latestEst && latestEst.length > 0) {
           targetEstanciaId = latestEst[0].id
           targetJornadaId = latestEst[0].jornada_id
         } else {
-          // 3. Fallback a cualquier estancia registrada hoy
           const { data: anyEst } = await supabase
             .from('estancias')
             .select('id, jornada_id')
             .order('created_at', { ascending: false })
             .limit(1)
-
           if (anyEst && anyEst.length > 0) {
             targetEstanciaId = anyEst[0].id
             targetJornadaId = anyEst[0].jornada_id
           } else {
-            // 4. Si no existe estancia en DB, crearla automáticamente para asegurar guardado
             const today = new Date().toISOString().slice(0, 10)
             const { data: activeJornada } = await supabase
               .from('jornadas')
@@ -243,7 +256,6 @@ export default function Estancia({ currentTerminal = 'Terminal Pipila', entryTim
                 status: 'ACTIVA'
               }])
               .select()
-
             if ((!createdEst || createdEst.length === 0) && jId) {
               console.warn('Reintentando creación de estancia sin jornada_id:', createEstErr)
               const retryCreated = await supabase
@@ -278,8 +290,6 @@ export default function Estancia({ currentTerminal = 'Terminal Pipila', entryTim
         photo_url: finalPhotoUrl,
         fileSize: (webpFile.size / 1024).toFixed(1)
       }
-
-      // Guardar directamente en tabla 'evidencias_fotograficas' de Supabase DB con estancia_id no nulo
       const { error: evErr } = await supabase.from('evidencias_fotograficas').insert([{
         estancia_id: targetEstanciaId,
         jornada_id: targetJornadaId,
@@ -300,7 +310,6 @@ export default function Estancia({ currentTerminal = 'Terminal Pipila', entryTim
         return exists ? prev : [...prev, newEvidence]
       })
 
-      // Sincronizar también las notas actuales en DB
       await saveNotesToSupabase(notes)
     } catch (err) {
       console.error('Error al subir evidencia:', err)
@@ -310,7 +319,6 @@ export default function Estancia({ currentTerminal = 'Terminal Pipila', entryTim
     }
   }
 
-  // Guardado Parcial Explícito en DB
   const handleSaveProgress = async () => {
     const trimmedNotes = notes.substring(0, MAX_NOTES_LENGTH)
     await saveNotesToSupabase(trimmedNotes)
@@ -372,7 +380,6 @@ export default function Estancia({ currentTerminal = 'Terminal Pipila', entryTim
             <span>{uploading ? 'Procesando WebP...' : 'Agregar Foto de Evidencia'}</span>
           </div>
         </div>
-
         <input
           type="file"
           ref={fileInputRef}
