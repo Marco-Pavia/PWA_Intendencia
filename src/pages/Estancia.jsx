@@ -290,13 +290,24 @@ export default function Estancia({ currentTerminal = 'Terminal Pipila', entryTim
         photo_url: finalPhotoUrl,
         fileSize: (webpFile.size / 1024).toFixed(1)
       }
-      const { error: evErr } = await supabase.from('evidencias_fotograficas').insert([{
+      let { error: evErr } = await supabase.from('evidencias_fotograficas').insert([{
         estancia_id: targetEstanciaId,
         jornada_id: targetJornadaId,
         photo_url: finalPhotoUrl,
         category: 'SUPERVISION',
         label: newEvidence.label
       }])
+
+      if (evErr && targetJornadaId) {
+        console.warn('Reintentando inserción de evidencia sin jornada_id:', evErr)
+        const retryRes = await supabase.from('evidencias_fotograficas').insert([{
+          estancia_id: targetEstanciaId,
+          photo_url: finalPhotoUrl,
+          category: 'SUPERVISION',
+          label: newEvidence.label
+        }])
+        evErr = retryRes.error
+      }
 
       if (evErr) {
         console.error('Error al insertar evidencia en Supabase DB:', evErr)

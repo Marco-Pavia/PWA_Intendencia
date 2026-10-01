@@ -134,20 +134,32 @@ export default function EstatusJornada() {
           const segmentMinutes = Math.max(0, Math.round((segmentEndTime - ciTime) / 60000))
           totalMinutesAccumulated += segmentMinutes
 
-          const notesResolved = ci.notes || estanciaMatch?.notes || null
+          // Resolver notas acumuladas de la estancia o check-in
+          const allEstanciasForTerminal = (dbEstancias || []).filter(e =>
+            e.terminal_name === ci.terminal_name &&
+            (e.created_at?.slice(0, 10) === selectedDate || e.entry_time?.slice(0, 10) === selectedDate)
+          )
+          const estanciaNotes = estanciaMatch?.notes || allEstanciasForTerminal.map(e => e.notes).filter(Boolean).reverse()[0] || null
+          const notesResolved = ci.notes || estanciaNotes || null
 
-          // Evidencias de Supabase DB que coincidan estrictamente por la estancia, jornada o fecha seleccionada
+          // Evidencias de Supabase DB por estancia_id o por ventana temporal de la estancia
+          const ciStartTimeMs = ciTime.getTime() - 5 * 60 * 1000
+          const ciEndTimeMs = segmentEndTime ? segmentEndTime.getTime() + 5 * 60 * 1000 : now.getTime() + 5 * 60 * 1000
+
           const dbEvMatch = (dbEvidencias || [])
             .filter(ev => {
+              const evTimeMs = ev.created_at ? new Date(ev.created_at).getTime() : 0
               const evDate = ev.created_at ? ev.created_at.substring(0, 10) : null
+
               const matchesEstancia = estanciaMatch && ev.estancia_id === estanciaMatch.id
-              const matchesJornada = activeJornada && ev.jornada_id === activeJornada.id && ev.label && ev.label.includes(ci.terminal_name)
-              const matchesTerminalDate = evDate === selectedDate && ev.label && ev.label.includes(ci.terminal_name)
-              return matchesEstancia || matchesJornada || matchesTerminalDate
+              const matchesTimeWindow = evTimeMs >= ciStartTimeMs && evTimeMs <= ciEndTimeMs
+              const matchesTerminalLabel = ev.label && ev.label.includes(ci.terminal_name)
+
+              return matchesEstancia || (matchesTimeWindow && (matchesTerminalLabel || evDate === selectedDate))
             })
             .map(ev => ({ label: ev.label || `${ci.terminal_name} - Evidencia`, photo_url: ev.photo_url }))
 
-          // Combinar foto de check-in con evidencias DB
+          // Combinar foto de check-in inicial con evidencias DB tomadas durante la estancia
           const entryPhoto = ci.photo_url ? [{ label: 'Foto Check-In', photo_url: ci.photo_url }] : []
 
           const photoSeen = new Set()
@@ -209,9 +221,14 @@ export default function EstatusJornada() {
     }
   }, [selectedDate])
 
-  // Escuchar actualizaciones en tiempo real via Supabase Realtime (WebSockets)
+  // Escuchar actualizaciones en tiempo real via Supabase Realtime (WebSockets) y Polling cada 5s
   useEffect(() => {
     loadRealtimeJornadaData()
+
+    // Sondeo de respaldo cada 5 segundos para actualización en tiempo real instantánea
+    const pollInterval = setInterval(() => {
+      loadRealtimeJornadaData()
+    }, 5000)
 
     // Suscripción Realtime a tablas clave para reflejar fotos y estados al instante
     const channel = supabase
@@ -231,6 +248,7 @@ export default function EstatusJornada() {
       .subscribe()
 
     return () => {
+      clearInterval(pollInterval)
       supabase.removeChannel(channel)
     }
   }, [loadRealtimeJornadaData])

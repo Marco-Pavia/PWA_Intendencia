@@ -69,7 +69,7 @@ export default function CambioTerminal({ onCambiarTerminal, onFinalizarJornada }
           disabled={gpsStatus !== 'verified'}
           onClick={handleRegistrarCambio}
         >
-          🔄 REGISTRAR CAMBIO DE TERMINAL
+          REGISTRAR CAMBIO DE TERMINAL
         </button>
       </div>
 
@@ -91,7 +91,7 @@ export default function CambioTerminal({ onCambiarTerminal, onFinalizarJornada }
           className="btn-finish-day"
           onClick={() => setShowConfirmModal(true)}
         >
-          ⛔ TERMINAR DÍA (SALIDA TOTAL)
+          ⛔ TERMINAR DÍA
         </button>
       </div>
 
@@ -99,7 +99,7 @@ export default function CambioTerminal({ onCambiarTerminal, onFinalizarJornada }
       {showConfirmModal && (
         <div className="modal-overlay">
           <div className="modal-content">
-            <div className="modal-warning-icon">⚠️</div>
+            <div className="modal-warning-icon"></div>
             <h3>Confirmar Cierre de Jornada</h3>
             <p>
               ¿Está segura de finalizar su jornada de trabajo por hoy? Esta acción cerrará el registro de asistencia del día.

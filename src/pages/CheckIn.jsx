@@ -537,7 +537,7 @@ export default function CheckIn({ onCheckInSuccess }) {
                       setPhotoFileWebP(null)
                     }}
                   >
-                    📷 Tomar Otra Foto
+                    Tomar Otra Foto
                   </button>
                 </div>
               ) : cameraActive ? (
@@ -568,7 +568,7 @@ export default function CheckIn({ onCheckInSuccess }) {
                       style={{ padding: '0.85rem 2rem', fontSize: '1rem' }}
                       onClick={startCamera}
                     >
-                      📷 Tomar Foto
+                      Tomar Foto
                     </button>
                   </div>
 
